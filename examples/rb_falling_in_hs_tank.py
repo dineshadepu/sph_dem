@@ -18,8 +18,7 @@ from pysph.examples import cavity as LDC
 from pysph.sph.equation import Equation, Group
 from pysph.sph.scheme import add_bool_argument
 sys.path.insert(0, "./../")
-from pysph_rfc_new.fluids import (get_particle_array_fluid, get_particle_array_boundary,
-                              FluidsScheme)
+from pysph_rfc_new.fluids import (get_particle_array_fluid, get_particle_array_boundary)
 
 from pysph.base.kernels import (QuinticSpline)
 from pysph.solver.solver import Solver
@@ -289,9 +288,9 @@ class Problem(Application):
         # we use 'm_b' for some equations and 'm' for fluid coupling
         rigid_body_combined = self.create_rb_geometry_particle_array()
         # move it to right, so that we can have a separate view
-        disp_x = self.fluid_length * 2.
+        disp_x = 0.
         rigid_body_combined.x[:] += disp_x
-        rigid_body_combined.y[:] -= self.rigid_body_diameter * 3.
+        rigid_body_combined.y[:] += self.rigid_body_diameter * 1.
 
         # This is # 2, (Here we create a rigid body which is compatible with
         # combined rigid body solver formulation)
@@ -326,6 +325,11 @@ class Problem(Application):
         # set mass and density to correspond to fluid
         rigid_body_slave.m[:] = self.fluid_rho * self.dx**2.
         rigid_body_slave.rho[:] = self.fluid_rho
+        # similarly for combined rb particle arra
+        add_rigid_fluid_properties_to_rigid_body(rigid_body_combined)
+        # set mass and density to correspond to fluid
+        rigid_body_combined.m[:] = self.fluid_rho * self.dx**2.
+        rigid_body_combined.rho[:] = self.fluid_rho
 
         # =========================
         # create rigid body ends
@@ -363,6 +367,15 @@ class Problem(Application):
         rigid_body_wall.add_property('dem_id', type='int', data=dem_id)
         rigid_body_wall.add_constant('no_wall', [3])
         setup_wall_dem(rigid_body_wall)
+
+        # remove fluid particles overlapping with the rigid body
+        G.remove_overlap_particles(
+            fluid, rigid_body_combined, self.dx, dim=self.dim
+        )
+        # remove fluid particles overlapping with the rigid body
+        G.remove_overlap_particles(
+            fluid, rigid_body_slave, self.dx, dim=self.dim
+        )
 
         if self.options.scheme == 'combined':
             return [fluid, tank, rigid_body_combined, rigid_body_wall]
@@ -438,8 +451,8 @@ class Problem(Application):
 
     def customize_output(self):
         self._mayavi_config('''
-        b = particle_arrays['rigid_body']
-        b.scalar = 'm'
+        # b = particle_arrays['rigid_body']
+        # b.scalar = 'm'
         b = particle_arrays['fluid']
         b.scalar = 'vmag'
         ''')

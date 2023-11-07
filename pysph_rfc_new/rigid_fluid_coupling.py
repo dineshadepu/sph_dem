@@ -26,6 +26,7 @@ from pysph_dem.rigid_body.rigid_body_3d import (UpdateSlaveBodyState,
                                                 GTVFRigidBody3DMasterStep)
 
 from pysph_dem.rigid_body.rigid_body_3d_combined import (SumUpExternalForcesCombined,
+                                                         ResetForceRigidBody,
                                                          RBRBCombinedContactForce,
                                                          RBWCombinedContactForce,
                                                          GTVFRigidBody3DCombinedStep)
@@ -33,8 +34,6 @@ from pysph_dem.rigid_body.rigid_body_3d_combined import (SumUpExternalForcesComb
 
 def add_rigid_fluid_properties_to_rigid_body(pa):
     add_properties(pa, 'arho')
-    add_properties(pa, 'm_fluid')
-    add_properties(pa, 'm_frac')
     add_properties(pa, 'wij')
     add_properties(pa, 'ug', 'vf', 'uf', 'wf', 'vg', 'wg')
 
@@ -247,6 +246,7 @@ class ParticlesFluidScheme(Scheme):
             self.follow_combined_rb_solver = True
         else:
             self.follow_combined_rb_solver = False
+        self.two_way_coupling = False
         self.attributes_changed()
 
     def add_user_options(self, group):
@@ -279,12 +279,20 @@ class ParticlesFluidScheme(Scheme):
                            type=float,
                            help="Surface energy")
 
+        add_bool_argument(
+            group,
+            'two-way-coupling',
+            dest='two_way_coupling',
+            default=True,
+            help='Should we handle the two way coupling')
+
     def consume_user_options(self, options):
         vars = [
             'alpha',
             'fric_coeff',
             'en',
-            'gamma'
+            'gamma',
+            'two_way_coupling'
         ]
         data = dict((var, self._smart_getattr(options, var)) for var in vars)
         self.configure(**data)
@@ -364,8 +372,8 @@ class ParticlesFluidScheme(Scheme):
         for fluid in self.fluids:
             eqs.append(ContinuityEquation(dest=fluid,
                                           sources=all), )
-            # eqs.append(ContinuityEquation(dest=fluid,
-            #                               sources=rb_fluid))
+            eqs.append(ContinuityEquation(dest=fluid,
+                                          sources=rb_fluid))
 
             # eqs.append(
             #     EDACEquation(dest=fluid,
@@ -417,24 +425,24 @@ class ParticlesFluidScheme(Scheme):
 
             stage2.append(Group(equations=eqs, real=False))
 
-        # if len(rb_fluid) > 0:
-        #     eqs = []
-        #     for body in self.rigid_bodies_slave:
-        #         eqs.append(SetWallVelocity(dest=body, sources=self.fluids))
-        #     stage2.append(Group(equations=eqs, real=False))
+        if len(rb_fluid) > 0:
+            eqs = []
+            for body in rb_fluid:
+                eqs.append(SetWallVelocity(dest=body, sources=self.fluids))
+            stage2.append(Group(equations=eqs, real=False))
 
-        # if len(rb_fluid) > 0:
-        #     eqs = []
-        #     for body in rb_fluid:
-        #         eqs.append(
-        #             SourceNumberDensity(dest=body, sources=self.fluids))
-        #         eqs.append(
-        #             SolidWallPressureBC(dest=body, sources=self.fluids,
-        #                                 gx=self.gx, gy=self.gy, gz=self.gz))
-        #         eqs.append(
-        #             ClampWallPressure(dest=body, sources=None))
+        if len(rb_fluid) > 0:
+            eqs = []
+            for body in rb_fluid:
+                eqs.append(
+                    SourceNumberDensity(dest=body, sources=self.fluids))
+                eqs.append(
+                    SolidWallPressureBC(dest=body, sources=self.fluids,
+                                        gx=self.gx, gy=self.gy, gz=self.gz))
+                eqs.append(
+                    ClampWallPressure(dest=body, sources=None))
 
-        #     stage2.append(Group(equations=eqs, real=False))
+            stage2.append(Group(equations=eqs, real=False))
 
         eqs = []
         for fluid in self.fluids:
@@ -463,32 +471,40 @@ class ParticlesFluidScheme(Scheme):
                         dest=fluid, sources=rb_fluid, nu=self.nu
                     )
                 )
-            # eqs.append(
-            #     MomentumEquationPressureGradient(dest=fluid,
-            #                                      sources=all+rb_fluid,
-            #                                      gx=self.gx, gy=self.gy,
-            #                                      gz=self.gz), )
             eqs.append(
                 MomentumEquationPressureGradient(dest=fluid,
-                                                 sources=all,
+                                                 sources=all+rb_fluid,
                                                  gx=self.gx, gy=self.gy,
                                                  gz=self.gz), )
+            # eqs.append(
+            #     MomentumEquationPressureGradient(dest=fluid,
+            #                                      sources=all,
+            #                                      gx=self.gx, gy=self.gy,
+            #                                      gz=self.gz), )
 
         stage2.append(Group(equations=eqs, real=True))
 
-        # # Compute the force on the rigid bodies due to fluid
-        # if len(rb_fluid) > 0:
-        #     eqs = []
-        #     for body in rb_fluid:
-        #         eqs.append(
-        #             RigidFluidPressureForce(dest=body, sources=self.fluids,
-        #                                     nu=self.nu))
-        #         eqs.append(
-        #             RigidFluidViscousNoSlipForce(dest=body,
-        #                                          sources=self.fluids,
-        #                                          nu=self.nu))
+        if len(self.rigid_bodies_combined) > 0:
+            g1 = []
+            for body in self.rigid_bodies_combined:
+                g1.append(ResetForceRigidBody(dest=body,
+                                              sources=self.rigid_bodies_combined))
+            stage2.append(Group(equations=g1, real=False))
 
-        #     stage2.append(Group(equations=eqs, real=True))
+        # Compute the force on the rigid bodies due to fluid
+        if self.two_way_coupling == True:
+            if len(rb_fluid) > 0:
+                eqs = []
+                for body in rb_fluid:
+                    eqs.append(
+                        RigidFluidPressureForce(dest=body, sources=self.fluids,
+                                                nu=self.nu))
+                    eqs.append(
+                        RigidFluidViscousNoSlipForce(dest=body,
+                                                    sources=self.fluids,
+                                                    nu=self.nu))
+
+                stage2.append(Group(equations=eqs, real=True))
 
         if len(self.rigid_bodies_master) > 0:
             g1 = []

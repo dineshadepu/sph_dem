@@ -1,8 +1,8 @@
-"""Skillen circular water entry
+"""Dam break with rigid bodies
 
 Run it using:
 
-python skillen_2013_circular_water_entry.py --openmp --use-edac --arti --alpha 0. --max-s 200 --pfreq 100 --nu 1e-3 --dx 0.0015
+python rb_falling_in_hs_tank.py --openmp --pfreq 100 --timestep 1e-4 --alpha 0.1 --fric-coeff 0.05 --en 0.05 --N 5 --no-of-bodies 20 --fluid-length-ratio 15 --fluid-height-ratio 10 --rigid-body-rho 2000 --tf 5 --scheme combined -d rb_falling_in_hs_tank_combined_output
 
 """
 import numpy as np
@@ -18,8 +18,7 @@ from pysph.examples import cavity as LDC
 from pysph.sph.equation import Equation, Group
 from pysph.sph.scheme import add_bool_argument
 sys.path.insert(0, "./../")
-from pysph_rfc_new.fluids import (get_particle_array_fluid, get_particle_array_boundary,
-                              FluidsScheme)
+from pysph_rfc_new.fluids import (get_particle_array_fluid, get_particle_array_boundary)
 
 from pysph.base.kernels import (QuinticSpline)
 from pysph.solver.solver import Solver
@@ -86,6 +85,10 @@ class Problem(Application):
                            dest="tank_length_ratio", default=1,
                            help="Ratio between the tank length and fluid length")
 
+        group.add_argument("--tank-extended-length-ratio", action="store", type=float,
+                           dest="tank_extended_length_ratio", default=2,
+                           help="Ratio between the tank original length to extended length")
+
         group.add_argument("--tank-height-ratio", action="store", type=float,
                            dest="tank_height_ratio", default=1.4,
                            help="Ratio between the tank height and fluid height")
@@ -101,6 +104,10 @@ class Problem(Application):
         group.add_argument("--rigid-body-diameter", action="store", type=float,
                            dest="rigid_body_diameter", default=1e-3,
                            help="Diameter of each particle")
+
+        group.add_argument("--dam-time", action="store", type=float,
+                           dest="dam_time", default=0.,
+                           help="Time at which dam has to be moved to right")
 
         add_bool_argument(
             group,
@@ -139,12 +146,14 @@ class Problem(Application):
 
         # x - axis
         self.tank_length = self.options.tank_length_ratio * self.fluid_length
+        self.tank_extended_length = self.options.tank_extended_length_ratio * self.tank_length
         # y - axis
         self.tank_height = self.options.tank_height_ratio * self.fluid_height
         # z - axis
         self.tank_depth = 0.0
 
         self.tank_layers = 3
+        self.dam_time = self.options.dam_time
 
         # ======================
         # Dimensions ends
@@ -177,7 +186,7 @@ class Problem(Application):
         self.c0 = 10 * self.vref
         self.mach_no = self.vref / self.c0
         self.nu = 0.0
-        self.tf = 1.0
+        self.tf = 3.0
         # self.tf = 0.56 - 0.3192
         self.p0 = self.fluid_rho*self.c0**2
         self.alpha = 0.00
@@ -209,6 +218,13 @@ class Problem(Application):
         xf, yf, xt, yt = hydrostatic_tank_2d(self.fluid_length, self.fluid_height,
                                              self.tank_height, self.tank_layers,
                                              self.dx, self.dx, False)
+        xt_2, yt_2 = get_2d_block(dx=self.dx,
+                                  length=self.tank_extended_length - self.tank_length,
+                                  height=self.tank_layers*self.dx)
+        xt_2[:] += max(xt) - min(xt_2)
+        yt_2[:] -= min(yt_2) - min(yt)
+        xt = np.concatenate((xt, xt_2))
+        yt = np.concatenate((yt, yt_2))
 
         zt = np.zeros_like(xt)
         zf = np.zeros_like(xf)
@@ -233,15 +249,25 @@ class Problem(Application):
         return fluid, tank
 
     def create_rb_geometry_particle_array(self):
-        x1, y1 = create_circle_1(self.rigid_body_diameter, self.dx)
-        x1 = x1.ravel()
-        y1 = y1.ravel()
         x = np.array([])
         y = np.array([])
-        for i in range(self.no_of_bodies):
-            # print(i, ": i is" )
-            x = np.concatenate((x, x1[:] + (i % 2) * 2. * self.dx))
-            y = np.concatenate((y, y1[:] + i * self.rigid_body_diameter + i * 2. * self.dx))
+        cylinders_in_layer = 5
+        for i in range(int(self.no_of_bodies / cylinders_in_layer)):
+            j = 0
+            x1, y1 = create_circle_1(self.rigid_body_diameter, self.dx)
+            x1 = x1.ravel()
+            y1 = y1.ravel()
+            x2 = np.array([])
+            y2 = np.array([])
+            while j < cylinders_in_layer:
+                # print(i, ": i is" )
+                x1[:] = x1[:] + self.rigid_body_diameter + self.dx * 2
+                x2 = np.concatenate((x2, x1[:]))
+                y2 = np.concatenate((y2, y1[:]))
+                j += 1
+            y2[:] += i * self.rigid_body_diameter + self.dx * i
+            x = np.concatenate((x, x2 + i % 2 * self.dx * 2.))
+            y = np.concatenate((y, y2))
         y[:] += self.fluid_height + self.rigid_body_diameter
         # x[:] += self.fluid_length/2. + self.rigid_body_diameter
         x[:] += self.fluid_length/2. - self.rigid_body_diameter * 4.
@@ -261,9 +287,11 @@ class Problem(Application):
                                                  E=1e9,
                                                  nu=0.23,
                                                  rho=self.fluid_rho)
+        # create it again just for body id and dem id creation
+        x1, y1 = create_circle_1(self.rigid_body_diameter, self.dx)
         body_id = np.array([])
         dem_id = np.array([])
-        for i in range(self.no_of_bodies):
+        for i in range(int(self.no_of_bodies / cylinders_in_layer) * cylinders_in_layer):
             body_id = np.concatenate((body_id, i * np.ones_like(x1, dtype='int')))
             dem_id = np.concatenate((dem_id, i * np.ones_like(x1, dtype='int')))
 
@@ -289,9 +317,9 @@ class Problem(Application):
         # we use 'm_b' for some equations and 'm' for fluid coupling
         rigid_body_combined = self.create_rb_geometry_particle_array()
         # move it to right, so that we can have a separate view
-        disp_x = self.fluid_length * 2.
+        disp_x = 0.
         rigid_body_combined.x[:] += disp_x
-        rigid_body_combined.y[:] -= self.rigid_body_diameter * 3.
+        rigid_body_combined.y[:] += self.rigid_body_diameter * 1.
 
         # This is # 2, (Here we create a rigid body which is compatible with
         # combined rigid body solver formulation)
@@ -326,6 +354,11 @@ class Problem(Application):
         # set mass and density to correspond to fluid
         rigid_body_slave.m[:] = self.fluid_rho * self.dx**2.
         rigid_body_slave.rho[:] = self.fluid_rho
+        # similarly for combined rb particle arra
+        add_rigid_fluid_properties_to_rigid_body(rigid_body_combined)
+        # set mass and density to correspond to fluid
+        rigid_body_combined.m[:] = self.fluid_rho * self.dx**2.
+        rigid_body_combined.rho[:] = self.fluid_rho
 
         # =========================
         # create rigid body ends
@@ -336,7 +369,7 @@ class Problem(Application):
         # ======================
         # left right bottom
         x = np.array([min(tank.x) + self.tank_layers * self.dx,
-                      max(tank.x) - self.tank_layers * self.dx,
+                      max(fluid.x) + self.dx,
                       max(tank.x) / 2
                      ])
         x[:] += disp_x
@@ -363,6 +396,15 @@ class Problem(Application):
         rigid_body_wall.add_property('dem_id', type='int', data=dem_id)
         rigid_body_wall.add_constant('no_wall', [3])
         setup_wall_dem(rigid_body_wall)
+
+        # remove fluid particles overlapping with the rigid body
+        G.remove_overlap_particles(
+            fluid, rigid_body_combined, self.dx, dim=self.dim
+        )
+        # remove fluid particles overlapping with the rigid body
+        G.remove_overlap_particles(
+            fluid, rigid_body_slave, self.dx, dim=self.dim
+        )
 
         if self.options.scheme == 'combined':
             return [fluid, tank, rigid_body_combined, rigid_body_wall]
@@ -436,10 +478,28 @@ class Problem(Application):
 
     #     return eqns
 
+    def post_step(self, solver):
+        dt = solver.dt
+        t = solver.t
+        if t > self.dam_time - dt and t < self.dam_time + dt:
+            for pa in self.particles:
+                if pa.name == 'tank':
+                    tank = pa
+
+            for pa in self.particles:
+                if pa.name == 'rigid_body_wall':
+                    rigid_wall = pa
+
+            cond = ((tank.x > min(tank.x) + self.tank_length / 2.) &
+                    (tank.x < min(tank.x) + 1.5 * self.tank_length) &
+                    (tank.y > min(tank.y) + (self.tank_layers - 0) * self.dx))
+            tank.x[cond] += self.tank_extended_length - self.tank_length
+            rigid_wall.x[1] = max(tank.x) - (self.tank_layers + 1) * self.dx
+
     def customize_output(self):
         self._mayavi_config('''
-        b = particle_arrays['rigid_body']
-        b.scalar = 'm'
+        # b = particle_arrays['rigid_body']
+        # b.scalar = 'm'
         b = particle_arrays['fluid']
         b.scalar = 'vmag'
         ''')

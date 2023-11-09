@@ -318,7 +318,7 @@ class Problem(Application):
         rigid_body_combined = self.create_rb_geometry_particle_array()
         # move it to right, so that we can have a separate view
         disp_x = 0.
-        rigid_body_combined.x[:] += disp_x
+        rigid_body_combined.x[:] -= min(rigid_body_combined.x) - min(fluid.x) - self.rigid_body_diameter
         rigid_body_combined.y[:] += self.rigid_body_diameter * 1.
 
         # This is # 2, (Here we create a rigid body which is compatible with

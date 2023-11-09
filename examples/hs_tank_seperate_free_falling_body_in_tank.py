@@ -2,7 +2,7 @@
 
 Run it using:
 
-python skillen_2013_circular_water_entry.py --openmp --use-edac --arti --alpha 0. --max-s 200 --pfreq 100 --nu 1e-3 --dx 0.0015
+python hs_tank_seperate_free_falling_body_in_tank.py --openmp --pfreq 100 --timestep 1e-4 --alpha 0.1 --fric-coeff 0.05 --en 0.05 --N 5 --no-of-bodies 10 --scheme combined
 
 """
 import numpy as np
@@ -233,15 +233,38 @@ class Problem(Application):
         return fluid, tank
 
     def create_rb_geometry_particle_array(self):
-        x1, y1 = create_circle_1(self.rigid_body_diameter, self.dx)
-        x1 = x1.ravel()
-        y1 = y1.ravel()
         x = np.array([])
         y = np.array([])
-        for i in range(self.no_of_bodies):
-            # print(i, ": i is" )
-            x = np.concatenate((x, x1[:] + (i % 2) * 2. * self.dx))
-            y = np.concatenate((y, y1[:] + i * self.rigid_body_diameter + i * 2. * self.dx))
+        cylinders_in_layer = 5
+        for i in range(int(self.no_of_bodies / cylinders_in_layer)):
+            j = 0
+            x1, y1 = create_circle_1(self.rigid_body_diameter, self.dx)
+            x1 = x1.ravel()
+            y1 = y1.ravel()
+            x2 = np.array([])
+            y2 = np.array([])
+            while j < cylinders_in_layer:
+                # print(i, ": i is" )
+                x1[:] = x1[:] + self.rigid_body_diameter + self.dx * 2
+                x2 = np.concatenate((x2, x1[:]))
+                y2 = np.concatenate((y2, y1[:]))
+                j += 1
+            y2[:] += i * self.rigid_body_diameter + self.dx * i
+            x = np.concatenate((x, x2 + i % 2 * self.dx * 2.))
+            y = np.concatenate((y, y2))
+
+        # for reminder bodies
+        if len(y) > 0:
+            max_y_bodies = np.max(y)
+        else:
+            max_y_bodies = 0.
+        for i in range(self.no_of_bodies % cylinders_in_layer):
+            x1, y1 = create_circle_1(self.rigid_body_diameter, self.dx)
+            x1 = x1.ravel()
+            y1 = y1.ravel()
+            x = np.concatenate((x, x1 + i * self.rigid_body_diameter + self.dx))
+            y = np.concatenate((y, y1 + max_y_bodies + self.rigid_body_diameter))
+
         y[:] += self.fluid_height + self.rigid_body_diameter
         # x[:] += self.fluid_length/2. + self.rigid_body_diameter
         x[:] += self.fluid_length/2. - self.rigid_body_diameter * 4.
@@ -289,9 +312,9 @@ class Problem(Application):
         # we use 'm_b' for some equations and 'm' for fluid coupling
         rigid_body_combined = self.create_rb_geometry_particle_array()
         # move it to right, so that we can have a separate view
-        disp_x = self.fluid_length * 2.
+        disp_x = self.fluid_length * 3.
         rigid_body_combined.x[:] += disp_x
-        rigid_body_combined.y[:] -= self.rigid_body_diameter * 3.
+        rigid_body_combined.y[:] += min(tank.y) - min(rigid_body_combined.y) + self.rigid_body_diameter
 
         # This is # 2, (Here we create a rigid body which is compatible with
         # combined rigid body solver formulation)
@@ -326,6 +349,11 @@ class Problem(Application):
         # set mass and density to correspond to fluid
         rigid_body_slave.m[:] = self.fluid_rho * self.dx**2.
         rigid_body_slave.rho[:] = self.fluid_rho
+        # similarly for combined rb particle arra
+        add_rigid_fluid_properties_to_rigid_body(rigid_body_combined)
+        # set mass and density to correspond to fluid
+        rigid_body_combined.m[:] = self.fluid_rho * self.dx**2.
+        rigid_body_combined.rho[:] = self.fluid_rho
 
         # =========================
         # create rigid body ends
@@ -336,7 +364,7 @@ class Problem(Application):
         # ======================
         # left right bottom
         x = np.array([min(tank.x) + self.tank_layers * self.dx,
-                      max(tank.x) - self.tank_layers * self.dx,
+                      max(tank.x) - self.tank_layers * self.dx + self.fluid_length * 2,
                       max(tank.x) / 2
                      ])
         x[:] += disp_x

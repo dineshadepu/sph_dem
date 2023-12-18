@@ -22,18 +22,19 @@ def get_particle_array_fluid(name, x, y, z=0., m=0., h=0., rho=0., ):
                             rho=rho,
                             m=m)
     add_properties(pa, 'arho', 'aconcentration', 'concentration', 'diff_coeff',
-                   'is_static', 'ap', 'auhat', 'avhat', 'awhat',
+                   'ap', 'auhat', 'avhat', 'awhat',
                    'uhat', 'vhat', 'what', 'p0')
     add_properties(pa, 'm_frac')
     pa.add_constant('c0_ref', 0.)
     pa.add_constant('p0_ref', 0.)
+    pa.add_constant('n', 4.)
     pa.m_frac[:] = 1.
     # default property arrays to save out.
     pa.set_output_arrays([
         'x', 'y', 'z', 'u', 'v', 'w', 'rho', 'm', 'h', 'pid', 'gid', 'tag', 'p'
     ])
 
-    pa.add_output_arrays(['concentration', 'is_static', 'diff_coeff'])
+    pa.add_output_arrays(['concentration', 'diff_coeff'])
 
     return pa
 
@@ -274,16 +275,15 @@ class SolidWallNoSlipBC(Equation):
 
 class FluidStep(IntegratorStep):
     def stage1(self, d_idx, d_u, d_v, d_w, d_au, d_av, d_aw, d_uhat, d_vhat,
-               d_what, d_auhat, d_avhat, d_awhat, d_is_static, dt):
+               d_what, d_auhat, d_avhat, d_awhat, dt):
         dtb2 = 0.5 * dt
-        if d_is_static[d_idx] == 0.:
-            d_u[d_idx] += dtb2 * d_au[d_idx]
-            d_v[d_idx] += dtb2 * d_av[d_idx]
-            d_w[d_idx] += dtb2 * d_aw[d_idx]
+        d_u[d_idx] += dtb2 * d_au[d_idx]
+        d_v[d_idx] += dtb2 * d_av[d_idx]
+        d_w[d_idx] += dtb2 * d_aw[d_idx]
 
-            d_uhat[d_idx] = d_u[d_idx] + dtb2 * d_auhat[d_idx]
-            d_vhat[d_idx] = d_v[d_idx] + dtb2 * d_avhat[d_idx]
-            d_what[d_idx] = d_w[d_idx] + dtb2 * d_awhat[d_idx]
+        d_uhat[d_idx] = d_u[d_idx] + dtb2 * d_auhat[d_idx]
+        d_vhat[d_idx] = d_v[d_idx] + dtb2 * d_avhat[d_idx]
+        d_what[d_idx] = d_w[d_idx] + dtb2 * d_awhat[d_idx]
 
     def stage2(self, d_idx, d_x, d_y, d_z, d_rho, d_arho, d_concentration,
                d_aconcentration, d_ap, d_p, d_uhat, d_vhat, d_what, dt):
@@ -295,12 +295,11 @@ class FluidStep(IntegratorStep):
         d_y[d_idx] += dt * d_vhat[d_idx]
         d_z[d_idx] += dt * d_what[d_idx]
 
-    def stage3(self, d_idx, d_u, d_v, d_w, d_au, d_av, d_aw, d_is_static, dt):
+    def stage3(self, d_idx, d_u, d_v, d_w, d_au, d_av, d_aw, dt):
         dtb2 = 0.5 * dt
-        if d_is_static[d_idx] == 0.:
-            d_u[d_idx] += dtb2 * d_au[d_idx]
-            d_v[d_idx] += dtb2 * d_av[d_idx]
-            d_w[d_idx] += dtb2 * d_aw[d_idx]
+        d_u[d_idx] += dtb2 * d_au[d_idx]
+        d_v[d_idx] += dtb2 * d_av[d_idx]
+        d_w[d_idx] += dtb2 * d_aw[d_idx]
 
 
 class FluidsScheme(Scheme):
@@ -310,7 +309,6 @@ class FluidsScheme(Scheme):
         self.nu = nu
         self.rho0 = rho0
         self.pb = pb
-        print("pb value is", self.pb)
         self.gx = gx
         self.gy = gy
         self.gz = gz
@@ -324,7 +322,7 @@ class FluidsScheme(Scheme):
 
     def add_user_options(self, group):
         group.add_argument("--alpha", action="store", type=float, dest="alpha",
-                           default=None,
+                           default=0.01,
                            help="Alpha for the artificial viscosity.")
 
     def consume_user_options(self, options):
@@ -380,8 +378,6 @@ class FluidsScheme(Scheme):
             eqs.append(ContinuityEquation(dest=fluid,
                                           sources=all), )
 
-            eqs.append(DiffusionEquation(dest=fluid,
-                                         sources=self.fluids), )
         stage1.append(Group(equations=eqs, real=False))
 
         # =========================#
@@ -413,8 +409,8 @@ class FluidsScheme(Scheme):
                 eqs.append(
                     SolidWallPressureBC(dest=boundary, sources=self.fluids,
                                         gx=self.gx, gy=self.gy, gz=self.gz))
-                # eqs.append(
-                #     ClampWallPressure(dest=boundary, sources=None))
+                eqs.append(
+                    ClampWallPressure(dest=boundary, sources=None))
 
             stage2.append(Group(equations=eqs, real=False))
 

@@ -1,11 +1,11 @@
 from setuptools import setup
 
-setup(name='pysph_rfc_new',
+setup(name='sph_dem',
       version='0.1',
-      description='Rigid fluid coupling in PySPH ',
-      url='http://github.com/dineshadepu/pysph_rfc_new',
+      description='SPH-DEM in PySPH',
+      url='http://github.com/dineshadepu/sph_dem',
       author='Dinesh Adepu',
       author_email='adepu.dinesh.a@gmail.com',
       license='MIT',
-      packages=['pysph_rfc_new'],
+      packages=['sph_dem'],
       zip_safe=False)

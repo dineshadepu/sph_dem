@@ -100,288 +100,78 @@ def get_files_at_given_times_from_log(files, times, logfile):
     return result
 
 
-class Benchmark4SWCollidingOblique(Problem):
+class Fluids01DamBreak2D(Problem):
     def get_name(self):
-        return 'benchmark_4_sw_colliding_oblique'
+        return 'fluids_01_dambreak2D'
 
     def setup(self):
         get_path = self.input_path
 
-        cmd = 'python examples/benchmark_4_sw_colliding_oblique.py' + backend
+        cmd = 'python examples/fluids_examples/2d_dam_break.py' + backend
 
-        velocity = 3.9
-        fric_coeff = 0.092
-        dt = 1e-7
         # Base case info
         self.case_info = {
-            'angle_2': (dict(
-                angle=2.,
-                timestep=dt,
-                ), 'Angle=2.'),
+            'hs_tank': (dict(
+                tank_length_ratio=1.,
+                ), 'hs tank'),
 
-            'angle_5': (dict(
-                angle=5.,
-                timestep=dt,
-                ), 'Angle=5.'),
-
-            'angle_10': (dict(
-                angle=10.,
-                timestep=dt,
-                ), 'Angle=10.'),
-
-            'angle_15': (dict(
-                angle=15.,
-                timestep=dt,
-                ), 'Angle=15.'),
-
-            'angle_20': (dict(
-                angle=20.,
-                timestep=dt,
-                ), 'Angle=20.'),
-
-            'angle_25': (dict(
-                angle=25.,
-                timestep=dt,
-                ), 'Angle=25.'),
-
-            'angle_30': (dict(
-                angle=30.,
-                timestep=dt,
-                ), 'Angle=30.'),
-
-            'angle_35': (dict(
-                angle=35.,
-                timestep=dt,
-                ), 'Angle=35.'),
-
-            'angle_40': (dict(
-                angle=40.,
-                timestep=dt,
-                ), 'Angle=40.'),
-
-            'angle_50': (dict(
-                angle=50.,
-                timestep=dt,
-                ), 'Angle=50.'),
-
-            'angle_55': (dict(
-                angle=55.,
-                timestep=dt,
-                ), 'Angle=55.'),
-
-            'angle_60': (dict(
-                angle=60.,
-                timestep=dt,
-                ), 'Angle=60.'),
-
-            'angle_65': (dict(
-                angle=65.,
-                timestep=dt,
-                ), 'Angle=65.'),
-
-            'angle_70': (dict(
-                angle=70.,
-                timestep=dt,
-                ), 'Angle=70.'),
-
-            # 'angle_80': (dict(
-            #     samples=samples,
-            #     velocity=5.,
-            #     angle=80.,
-            #     fric_coeff=fric_coeff,
-            #     ), 'Angle=80.'),
+            'dam_break_2d': (dict(
+                tank_length_ratio=3.,
+                ), 'db 2d'),
         }
 
         self.cases = [
             Simulation(get_path(name), cmd,
                        job_info=dict(n_core=n_core,
                                      n_thread=n_thread), cache_nnps=None,
-                       velocity=velocity,
-                       fric_coeff=fric_coeff,
+                       alpha=0.1,
                        **scheme_opts(self.case_info[name][0]))
             for name in self.case_info
         ]
 
     def run(self):
         self.make_output_dir()
-        self.plot_theta_vs_omega()
-
-    def plot_theta_vs_omega(self):
-        data = {}
-        for name in self.case_info:
-            data[name] = np.load(self.input_path(name, 'results.npz'))
-            angle_exp = data[name]['angle_exp']
-            ang_vel_exp = data[name]['ang_vel_exp']
-            angle_lethe = data[name]['angle_lethe']
-            ang_vel_lethe = data[name]['ang_vel_lethe']
-
-        angle_current = []
-        ang_vel_current = []
-
-        for name in self.case_info:
-            angle_current.append(data[name]['angle_current'])
-            ang_vel_current.append(data[name]['ang_vel_current'])
-
-        plt.plot(angle_exp, ang_vel_exp, '*', label='Kharaz, Gorham and Salman (Exp)')
-        plt.plot(angle_lethe, ang_vel_lethe, 'v-', label='Lethe')
-        plt.plot(angle_current, ang_vel_current, '^-', label='Simulated')
-        plt.xlabel('Angle')
-        plt.ylabel(r'Angular Velocity')
-        plt.legend(prop={'size': 12})
-        # plt.tight_layout(pad=0)
-        plt.savefig(self.output_path('angle_vs_ang_vel.pdf'))
-        plt.clf()
-        plt.close()
 
 
-class RB05SphericalImpactsWallKharazGorhamSalman(Problem):
+class Fluids02DamBreak3D(Problem):
     def get_name(self):
-        return 'rb_05_spherical_impacts_wall_kharaz_gorham_salman'
+        return 'fluids_02_dambreak3D'
 
     def setup(self):
         get_path = self.input_path
 
-        cmd = 'python examples/rigid_body/05_spherical_rigid_body_impact_wall_Kharaz_Gorham_Salman.py' + backend
-        velocity = 3.9
-        fric_coeff = 0.092
-        dt = 1e-7
+        cmd = 'python examples/fluids_examples/3d_dam_break.py' + backend
+
         # Base case info
         self.case_info = {
-            'angle_2': (dict(
-                angle=2.,
-                timestep=dt,
-                ), 'Angle=2.'),
+            'hs_tank': (dict(
+                tank_length_ratio=1.,
+                ), 'hs tank'),
 
-            'angle_5': (dict(
-                angle=5.,
-                timestep=dt,
-                ), 'Angle=5.'),
-
-            'angle_10': (dict(
-                angle=10.,
-                timestep=dt,
-                ), 'Angle=10.'),
-
-            'angle_15': (dict(
-                angle=15.,
-                timestep=dt,
-                ), 'Angle=15.'),
-
-            'angle_20': (dict(
-                angle=20.,
-                timestep=dt,
-                ), 'Angle=20.'),
-
-            'angle_25': (dict(
-                angle=25.,
-                timestep=dt,
-                ), 'Angle=25.'),
-
-            'angle_30': (dict(
-                angle=30.,
-                timestep=dt,
-                ), 'Angle=30.'),
-
-            'angle_35': (dict(
-                angle=35.,
-                timestep=dt,
-                ), 'Angle=35.'),
-
-            'angle_40': (dict(
-                angle=40.,
-                timestep=dt,
-                ), 'Angle=40.'),
-
-            'angle_50': (dict(
-                angle=50.,
-                timestep=dt,
-                ), 'Angle=50.'),
-
-            'angle_55': (dict(
-                angle=55.,
-                timestep=dt,
-                ), 'Angle=55.'),
-
-            'angle_60': (dict(
-                angle=60.,
-                timestep=dt,
-                ), 'Angle=60.'),
-
-            'angle_65': (dict(
-                angle=65.,
-                timestep=dt,
-                ), 'Angle=65.'),
-
-            'angle_70': (dict(
-                angle=70.,
-                timestep=dt,
-                ), 'Angle=70.'),
-
-            # 'angle_80': (dict(
-            #     samples=samples,
-            #     velocity=5.,
-            #     angle=80.,
-            #     fric_coeff=fric_coeff,
-            #     ), 'Angle=80.'),
+            'dam_break_3d': (dict(
+                tank_length_ratio=3.,
+                ), 'db 3d'),
         }
 
         self.cases = [
             Simulation(get_path(name), cmd,
                        job_info=dict(n_core=n_core,
                                      n_thread=n_thread), cache_nnps=None,
-                       velocity=velocity,
-                       fric_coeff=fric_coeff,
+                       alpha=0.1,
                        **scheme_opts(self.case_info[name][0]))
             for name in self.case_info
         ]
 
     def run(self):
         self.make_output_dir()
-        self.plot_theta_vs_omega()
-
-    def plot_theta_vs_omega(self):
-        data = {}
-        for name in self.case_info:
-            data[name] = np.load(self.input_path(name, 'results.npz'))
-            angle_exp = data[name]['angle_exp']
-            ang_vel_exp = data[name]['ang_vel_exp']
-            angle_lethe = data[name]['angle_lethe']
-            ang_vel_lethe = data[name]['ang_vel_lethe']
-
-        angle_current = []
-        ang_vel_current = []
-
-        for name in self.case_info:
-            angle_current.append(data[name]['angle_current'])
-            ang_vel_current.append(data[name]['ang_vel_current'])
-
-        plt.plot(angle_exp, ang_vel_exp, '*', label='Kharaz, Gorham and Salman (Exp)')
-        plt.plot(angle_lethe, ang_vel_lethe, 'v-', label='Lethe')
-        plt.plot(angle_current, ang_vel_current, '^-', label='Simulated')
-        plt.xlabel('Angle')
-        plt.ylabel(r'Angular Velocity')
-        plt.legend(prop={'size': 12})
-        # plt.tight_layout(pad=0)
-        plt.savefig(self.output_path('angle_vs_ang_vel.pdf'))
-        plt.clf()
-        plt.close()
 
 
 if __name__ == '__main__':
     PROBLEMS = [
-        # Discrete element method benchmarks
-        RB01SingleBodyTranslatingAndRotating,
-        RB02SingleBodyHittingWallDifferentAnglesNoDamping,
-        RB03SingleBodyHittingWallWithDamping,
-        RB04TwoParticlesColliding,
-
-        # Fluid benchmarks
-        HS2DTank,
-
-        # RFC benchmarks
-        RFC01SingleParticleEnteringHSTank,
-        RFC02TwoParticlesEnteringHSTank,
-        RFC03ManyParticlesEnteringHSTank]
+        # fluids examples
+        Fluids01DamBreak2D,
+        Fluids02DamBreak3D,
+    ]
 
     automator = Automator(
         simulation_dir='outputs',

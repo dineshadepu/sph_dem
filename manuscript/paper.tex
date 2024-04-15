@@ -1,0 +1,255 @@
+\documentclass[preprint,12pt]{elsarticle}
+% \documentclass[draft,12pt]{elsarticle}
+
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{multirow}
+\usepackage{relsize}
+\usepackage[utf8]{inputenc}
+\usepackage{cleveref}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage[section]{placeins}
+\usepackage{booktabs}
+\usepackage{url}
+
+% For the TODOs
+\usepackage{xcolor}
+\usepackage{xargs}
+\usepackage[colorinlistoftodos,textsize=footnotesize]{todonotes}
+\newcommand{\todoin}{\todo[inline]}
+% from here: https://tex.stackexchange.com/questions/9796/how-to-add-todo-notes
+\newcommandx{\unsure}[2][1=]{\todo[linecolor=red,backgroundcolor=red!25,bordercolor=red,#1]{#2}}
+\newcommandx{\change}[2][1=]{\todo[linecolor=blue,backgroundcolor=blue!25,bordercolor=blue,#1]{#2}}
+\newcommandx{\info}[2][1=]{\todo[linecolor=OliveGreen,backgroundcolor=OliveGreen!25,bordercolor=OliveGreen,#1]{#2}}
+
+%Boldtype for greek symbols
+\newcommand{\teng}[1]{\ensuremath{\boldsymbol{#1}}}
+\newcommand{\ten}[1]{\ensuremath{\mathbf{#1}}}
+
+\usepackage{lineno}
+% \linenumbers
+
+\journal{}
+
+\begin{document}
+
+\begin{frontmatter}
+
+  \title{}
+  \author[IITB]{Dinesh Adepu\corref{cor1}}
+  \ead{adepu.dinesh.a@gmail.com}
+  \author[University of Surrey]{Chuan Yu Wu}
+  \ead{xyz@com}
+\address[UoS]{Department of Aerospace Engineering, Indian Institute of
+  Technology Bombay, Powai, Mumbai 400076}
+
+\cortext[cor1]{Corresponding author}
+
+
+\begin{abstract}
+
+\end{abstract}
+
+\begin{keyword}
+%% keywords here, in the form: keyword \sep keyword
+{Elastic solids collision}, {Frictional contact}, {SPH}, {Transport Velocity Formulation}
+
+%% MSC codes here, in the form: \MSC code \sep code
+%% or \MSC[2008] code \sep code (2000 is the default)
+
+\end{keyword}
+
+\end{frontmatter}
+
+% \linenumbers
+
+\section{Introduction}
+\label{sec:intro}
+
+
+\section{Numerical model}
+\label{sec:numerical_model}
+The SPH discretization of the continuity
+equation~\cref{eq:sph-discretization-continuity} and the momentum equation
+~\cref{eq:sph-momentum-fluid} respectively are,
+\begin{equation}
+  \label{eq:sph-discretization-continuity}
+  \frac{d\overline{\rho}_i}{dt} = \sum_{j} \;
+   m_j \; {\ten{u}}_{ij} \; \cdot \nabla_{i} W_{ij}(h),
+\end{equation}
+
+$\overline{\rho}_i=\epsilon_i \rho_i$.
+\begin{equation}
+  \label{eq:fluid-porosity}
+  \epsilon_i = 1 - \sum_b W_{ib}(h_c) V_b
+\end{equation}
+
+%
+Similarly, the discretized momentum equation for fluids is written as,
+\begin{multline}
+  \label{eq:sph-momentum-fluid}
+  \frac{d\ten{u}_{i}}{dt} = - \sum_{j} m_j
+  \bigg(\frac{p_i}{\overline{\rho}_i^2} + \frac{p_j}{\overline{\rho}_j^2}\bigg)
+  \nabla_{i} W_{ij}
+ \;+\;
+  \sum_{j} m_j \frac{4 \eta \nabla W_{ij}\cdot
+    \ten{r}_{ij}}{(\overline{\rho}_i + \overline{\rho}_j) (r_{ij}^2 + 0.01 h_{ij}^2)} \ten{u}_{ij}  \;+\;
+  \ten{g}_{i},
+\end{multline}
+where $\ten{I}$ is the identity matrix, $\eta$ is the kinematic viscosity of the
+fluid and \cite{morris1997modeling} formulation is used to discretize the
+viscosity term.
+
+We add to the momentum equation an additional artificial viscosity term
+$\Pi_{ij}$~\cite{monaghan-review:2005} to maintain the stability of the
+numerical scheme, given as,
+\begin{align}
+  \label{eq:mom-av}
+  \Pi_{ij} =
+  \begin{cases}
+\frac{-\alpha h_{ij} \bar{c}_{ij} \phi_{ij}}{\bar{\rho}_{ij}}
+  & \ten{u}_{ij}\cdot \ten{r}_{ij} < 0, \\
+  0 & \ten{u}_{ij}\cdot \ten{r}_{ij} \ge 0,
+\end{cases}
+\end{align}
+where,
+%
+\begin{equation}
+  \label{eq:av-phiij}
+  \phi_{ij} = \frac{\ten{u}_{ij} \cdot \ten{r}_{ij}}{r^2_{ij} + 0.01 h^2_{ij}},
+\end{equation}
+%
+where $\ten{r}_{ij} = \ten{r}_i - \ten{r}_j$,
+$\ten{u}_{ij} = \ten{u}_i - \ten{u}_j$, $h_{ij} = (h_i + h_j)/2$,
+$\bar{\overline{\rho}}_{ij} = (\overline{\rho}_i + \overline{\rho}_j)/2$, $\bar{c}_{ij} = (c_i + c_j) / 2$, and
+$\alpha$ is the artificial viscosity parameter.  The pressure $p_i$ is evaluated
+using an equation of state:
+\begin{equation}
+\label{eqn:sph-eos}
+  p_i = K \bigg(\frac{\overline{\rho}_i}{\epsilon \; \rho_{0}} - 1 \bigg).
+\end{equation}
+Where, $K=\rho_0 \, c_0^2$ is bulk modulus of the body, with
+$c_0=10 \times V_{\text{max}}$ is speed of sound, while $\rho_0$ as the
+initial density of the particles.
+
+
+
+\FloatBarrier%
+\section{Coupling forces on solid phase}
+\label{sec:solid-fluid-coupling-force}
+% Taken from Dike failure paper \cite{zhang_numerical_2023}
+
+\begin{equation}
+\label{eqn:sph-eos}
+  \ten{f}_i = \ten{f}_i^{\text{buoyancy}} + \ten{f}_i^{\text{drag}}
+\end{equation}
+
+\begin{equation}
+\label{eqn:f-buoyancy}
+  \ten{f}_i^{\text{buoyancy}} = - V_i \sum_{a}
+  \frac{m_a p_a}{\overline{\rho}_a}
+  \nabla_{i} W_{ia} (h_c)
+\end{equation}
+
+
+\begin{equation}
+\label{eqn:f-drag}
+\ten{f}_i^{\text{drag}} = \frac{\beta_i V_i}{1 - \epsilon_i} (\ten{v}_i - \ten{u}_i)
+\end{equation}
+
+\begin{equation}
+\label{eqn:epsilon_solid}
+\epsilon_i = \frac{1}{\sum_a \frac{m_a}{\rho_a} W_{ia} (h_c)} \sum_a \epsilon_a \frac{m_a}{\rho_a} W_{ia} (h_c)
+\end{equation}
+
+\begin{equation}
+\label{eqn:epsilon_solid}
+\ten{v} = \frac{1}{\sum_a \frac{m_a}{\rho_a} W_{ia} (h_c)} \sum_a \ten{u}_a \frac{m_a}{\rho_a} W_{ia} (h_c)
+\end{equation}
+
+The inter-phase momentum exchange coefficient $\beta_i$ is expressed as:
+
+\begin{align}
+  \label{eq:analytical-x-cm-rolling-cylinder}
+  \beta_{i} =
+  \begin{cases}
+    150 \frac{(1 - \epsilon_i)^2}{\epsilon_i}\frac{\mu_f}{d_i^2} + 1.75 (1 - \epsilon_i)\frac{\rho_f}{d_i} | \ten{v}_i - \ten{u}_i|  & \epsilon_i \leq 0.8, \\
+    0.75 C_d \frac{\epsilon_i(1 - \epsilon_i)}{d_i} \rho_f | \ten{v}_i - \ten{u}_i| \epsilon_i^{-2.65} & \epsilon_i > 0.8 \\
+\end{cases}
+\end{align}
+where $\mu_f, d_i, \rho_f$ and $C_d$ are the dynamic viscosity of the fluid,
+diameter of particle $i$, density of the fluid and drag coefficient
+respectively. The drag coefficient $C_d$ is given by:
+\begin{align}
+  \label{eq:analytical-x-cm-rolling-cylinder}
+  C_d =
+  \begin{cases}
+    \frac{24}{Re_i}(1 + 0.15 Re_i^{0.687}) & Re_i \leq 1000, \\
+    0.44 & Re_i > 1000 \\
+\end{cases}
+\end{align}
+where $Re_i$ is the particle Reynolds number of particle 1:
+
+\begin{equation}
+Re_i = \frac{\rho_f d_i \epsilon_i | \ten{v}_i - \ten{u}_i|}{\mu_f}
+\end{equation}
+
+
+
+\FloatBarrier%
+\section{Forces on the fluid due to interaction with solid}
+\label{sec:coupling-force-on-fluid}
+
+
+\begin{equation}
+\ten{f}_a = -\frac{m_a}{\rho_a} \sum_i \frac{1}{S_i} \ten{f}_i W_{ai}(h_c)
+\end{equation}
+\begin{equation}
+\ten{S}_i = \sum_a \frac{m_a}{\rho_a} W_{ia}(h_c)
+\end{equation}
+
+\FloatBarrier%
+\section{Conclusions}
+\label{sec:conclusions}
+
+
+\section*{References}
+
+
+\bibliographystyle{model6-num-names}
+\bibliography{references}
+\todoin{Virtual Experiments of Particle Mixing Process with the SPH-DEM Model}
+add this citation
+\end{document}
+
+% ============================
+% Table template for reference
+% ============================
+% \begin{table}[!ht]
+%   \centering
+%   \begin{tabular}[!ht]{ll}
+%     \toprule
+%     Quantity & Values\\
+%     \midrule
+%     $L$, length of the domain & 1 m \\
+%     Time of simulation & 2.5 s \\
+%     $c_s$ & 10 m/s \\
+%     $\rho_0$, reference density & 1 kg/m\textsuperscript{3} \\
+%     Reynolds number & 200 \& 1000 \\
+%     Resolution, $L/\Delta x_{\max} : L/\Delta x_{\min}$ & $[100:200]$ \& $[150:300]$\\
+%     Smoothing length factor, $h/\Delta x$ & 1.0\\
+%     \bottomrule
+%   \end{tabular}
+%   \caption{Parameters used for the Taylor-Green vortex problem.}%
+%   \label{tab:tgv-params}
+% \end{table}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "paper"
+%%% fill-column: 78
+%%% End:

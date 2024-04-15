@@ -1,5 +1,7 @@
 import numpy
 import numpy as np
+from math import sqrt
+from compyle.api import declare
 
 from pysph.sph.equation import Equation, Group, MultiStageEquations
 from pysph.sph.integrator_step import IntegratorStep
@@ -11,6 +13,19 @@ from pysph.base.kernels import (QuinticSpline)
 from pysph.examples.solid_mech.impact import add_properties
 
 from pysph.sph.integrator import Integrator
+from pysph.sph.isph.wall_normal import ComputeNormals, SmoothNormals
+
+
+def add_boundary_identification_properties(pa):
+    # for normals
+    pa.add_property('normal', stride=3)
+    pa.add_property('normal_tmp', stride=3)
+    pa.add_property('normal_norm')
+
+    # check for boundary particle
+    pa.add_property('is_boundary', type='int')
+
+    pa.add_output_arrays(['is_boundary'])
 
 
 def get_particle_array_fluid(name, x, y, z=0., m=0., h=0., rho=0., ):
@@ -35,6 +50,18 @@ def get_particle_array_fluid(name, x, y, z=0., m=0., h=0., rho=0., ):
     ])
 
     pa.add_output_arrays(['concentration', 'diff_coeff'])
+
+    # ===========
+    # for PST
+    # ===========
+    # Boundary properties
+    add_boundary_identification_properties(pa)
+
+    if 'n' not in pa.constants:
+        pa.add_constant('n', 4.)
+    # ==============
+    # for PST ends
+    # ==============
 
     return pa
 
@@ -273,6 +300,105 @@ class SolidWallNoSlipBC(Equation):
         d_aw[d_idx] += fac * (d_w[d_idx] - s_wg[s_idx])
 
 
+class IdentifyBoundaryParticleCosAngle(Equation):
+    def __init__(self, dest, sources):
+        super(IdentifyBoundaryParticleCosAngle, self).__init__(dest, sources)
+
+    def initialize(self, d_idx, d_is_boundary, d_normal_norm, d_normal):
+        # set all of them to be boundary
+        i, idx3 = declare('int', 2)
+        idx3 = 3 * d_idx
+
+        normal_norm = (d_normal[idx3]**2. + d_normal[idx3 + 1]**2. +
+                       d_normal[idx3 + 2]**2.)
+
+        d_normal_norm[d_idx] = normal_norm
+
+        # normal norm is always one
+        if normal_norm > 1e-6:
+            # first set the particle as boundary if its normal exists
+            d_is_boundary[d_idx] = 1
+        else:
+
+            d_is_boundary[d_idx] = 0
+
+
+    def loop_all(self, d_idx, d_x, d_y, d_z, d_rho, d_h, d_is_boundary,
+                 d_normal, s_m, s_x, s_y, s_z, s_h, SPH_KERNEL, NBRS, N_NBRS):
+        i, idx3, s_idx = declare('int', 3)
+        xij = declare('matrix(3)')
+        idx3 = 3 * d_idx
+
+        h_i = d_h[d_idx]
+        # normal norm is always one
+        if d_is_boundary[d_idx] == 1:
+            for i in range(N_NBRS):
+                s_idx = NBRS[i]
+                xij[0] = d_x[d_idx] - s_x[s_idx]
+                xij[1] = d_y[d_idx] - s_y[s_idx]
+                xij[2] = d_z[d_idx] - s_z[s_idx]
+                rij = sqrt(xij[0]**2. + xij[1]**2. + xij[2]**2.)
+                if rij > 1e-9 * h_i and rij < 2. * h_i:
+                    # dot product between the vector and line joining sidx
+                    dot = -(d_normal[idx3] * xij[0] + d_normal[idx3 + 1] *
+                            xij[1] + d_normal[idx3 + 2] * xij[2])
+
+                    fac = dot / rij
+
+                    if fac > 0.5:
+                        d_is_boundary[d_idx] = 0
+                        break
+
+
+class ComputeAuHatETVFSun2019(Equation):
+    def __init__(self, dest, sources, mach_no, u_max, rho0, dim=2):
+        self.mach_no = mach_no
+        self.u_max = u_max
+        self.dim = dim
+        self.rho0 = rho0
+        super(ComputeAuHatETVFSun2019, self).__init__(dest, sources)
+
+    def initialize(self, d_idx, d_auhat, d_avhat, d_awhat):
+        d_auhat[d_idx] = 0.0
+        d_avhat[d_idx] = 0.0
+        d_awhat[d_idx] = 0.0
+
+    def loop(self, d_idx, s_idx, s_rho, s_m, d_h, d_auhat, d_avhat, d_awhat,
+             d_c0_ref, d_wdeltap, d_n, WIJ, SPH_KERNEL, DWIJ, XIJ,
+             RIJ, dt):
+        fab = 0.
+        # this value is directly taken from the paper
+        R = 0.5
+
+        if d_wdeltap[0] > 0.:
+            fab = WIJ / d_wdeltap[0]
+            fab = pow(fab, d_n[0])
+
+        tmp = self.mach_no * d_c0_ref[0] * 2. * d_h[d_idx] / dt
+
+        tmp1 = s_m[s_idx] / self.rho0
+
+        d_auhat[d_idx] -= tmp * tmp1 * (1. + R * fab) * DWIJ[0]
+        d_avhat[d_idx] -= tmp * tmp1 * (1. + R * fab) * DWIJ[1]
+        d_awhat[d_idx] -= tmp * tmp1 * (1. + R * fab) * DWIJ[2]
+
+    def post_loop(self, d_idx, d_rho, d_h, d_normal, d_auhat, d_avhat,
+                  d_awhat, d_is_boundary, d_normal_norm):
+        """Save the auhat avhat awhat
+        First we make all the particles with div_r < dim - 0.5 as zero.
+
+        Now if the particle is a free surface particle and not a free particle,
+        which identified through our normal code (d_h_b < d_h), we cut off the
+        normal component
+
+        """
+        if d_normal_norm[d_idx] > 1e-6:
+            # since it is boundary make its shifting acceleration zero
+            d_auhat[d_idx] = 0.
+            d_avhat[d_idx] = 0.
+            d_awhat[d_idx] = 0.
+
+
 class FluidStep(IntegratorStep):
     def stage1(self, d_idx, d_u, d_v, d_w, d_au, d_av, d_aw, d_uhat, d_vhat,
                d_what, d_auhat, d_avhat, d_awhat, dt):
@@ -303,11 +429,13 @@ class FluidStep(IntegratorStep):
 
 
 class FluidsScheme(Scheme):
-    def __init__(self, fluids, boundaries, dim, c0, nu, rho0, pb=0.0,
-                 gx=0.0, gy=0.0, gz=0.0, alpha=0.0):
+    def __init__(self, fluids, boundaries, dim, c0, nu, rho0, mach_no,
+                 u_max, pb=0.0, gx=0.0, gy=0.0, gz=0.0, alpha=0.0):
         self.c0 = c0
         self.nu = nu
         self.rho0 = rho0
+        self.mach_no = mach_no
+        self.u_max = u_max
         self.pb = pb
         self.gx = gx
         self.gy = gy
@@ -321,6 +449,10 @@ class FluidsScheme(Scheme):
         self.attributes_changed()
 
     def add_user_options(self, group):
+        group.add_argument("--alpha", action="store", type=float, dest="alpha",
+                           default=0.01,
+                           help="Alpha for the artificial viscosity.")
+
         group.add_argument("--alpha", action="store", type=float, dest="alpha",
                            default=0.01,
                            help="Alpha for the artificial viscosity.")
@@ -414,6 +546,38 @@ class FluidsScheme(Scheme):
 
             stage2.append(Group(equations=eqs, real=False))
 
+        # ==================================================================
+        # Compute the boundary particles, this is for PST
+        # ==================================================================
+        tmp = []
+        for fluid in self.fluids:
+            tmp.append(
+                ComputeNormals(dest=fluid,
+                               sources=self.fluids+self.boundaries))
+        stage2.append(Group(equations=tmp, real=False))
+
+        tmp = []
+        for fluid in self.fluids:
+            tmp.append(
+                SmoothNormals(dest=fluid,
+                              sources=[fluid]))
+        stage2.append(Group(equations=tmp, real=False))
+
+        tmp = []
+        for dest in self.fluids:
+            # # the sources here will the particle array and the boundaries
+            # if boundaries == None:
+            #     srcs = [dest]
+            # else:
+            #     srcs = list(set([dest] + boundaries))
+
+            srcs = [dest]
+            tmp.append(IdentifyBoundaryParticleCosAngle(dest=dest, sources=srcs))
+        stage2.append(Group(equations=tmp, real=False))
+        # ==================================================================
+        # Compute the boundary particles, this is for PST ends
+        # ==================================================================
+
         eqs = []
         for fluid in self.fluids:
             if self.alpha > 0.:
@@ -440,7 +604,64 @@ class FluidsScheme(Scheme):
                 MomentumEquationPressureGradient(dest=fluid, sources=all,
                                                  gx=self.gx, gy=self.gy,
                                                  gz=self.gz), )
+            eqs.append(
+                ComputeAuHatETVFSun2019(dest=fluid, sources=all,
+                                        mach_no=self.mach_no,
+                                        u_max=self.u_max,
+                                        rho0=self.rho0))
 
         stage2.append(Group(equations=eqs, real=True))
+
+        # # this PST is handled separately
+        # if self.pst == "ipst":
+        #     g5 = []
+        #     g6 = []
+        #     g7 = []
+        #     g8 = []
+
+        #     # make auhat zero before computation of ipst force
+        #     eqns = []
+        #     for fluid in self.fluids:
+        #         eqns.append(MakeAuhatZero(dest=fluid, sources=None))
+
+        #     stage2.append(Group(eqns))
+
+        #     for fluid in self.fluids:
+        #         g5.append(
+        #             SavePositionsIPSTBeforeMoving(dest=fluid, sources=None))
+
+        #         # these two has to be in the iterative group and the nnps has to
+        #         # be updated
+        #         # ---------------------------------------
+        #         g6.append(
+        #             AdjustPositionIPST(dest=fluid, sources=all,
+        #                                u_max=self.u_max))
+
+        #         if self.internal_flow == True:
+        #             g7.append(
+        #                 CheckUniformityIPSTFluidInternalFlow(
+        #                     dest=fluid, sources=all, debug=self.debug,
+        #                     tolerance=self.ipst_tolerance))
+        #         else:
+        #             g7.append(
+        #                 CheckUniformityIPST(dest=fluid, sources=all,
+        #                                     debug=self.debug,
+        #                                     tolerance=self.ipst_tolerance))
+
+        #         # ---------------------------------------
+        #         g8.append(ComputeAuhatETVFIPSTFluids(dest=fluid, sources=None,
+        #                                              rho0=self.rho0))
+        #         g8.append(ResetParticlePositionsIPST(dest=fluid, sources=None))
+
+        #     stage2.append(Group(g5, condition=self.check_ipst_time))
+
+        #     # this is the iterative group
+        #     stage2.append(
+        #         Group(equations=[Group(equations=g6),
+        #                          Group(equations=g7)], iterate=True,
+        #               max_iterations=self.ipst_max_iterations,
+        #               condition=self.check_ipst_time))
+
+        #     stage2.append(Group(g8, condition=self.check_ipst_time))
 
         return MultiStageEquations([stage1, stage2])

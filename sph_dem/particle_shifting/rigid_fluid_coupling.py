@@ -12,11 +12,11 @@ from pysph.examples.solid_mech.impact import add_properties
 
 from pysph.sph.integrator import Integrator
 
-from sph_dem.fluids import (ContinuityEquation, StateEquation,
-                            StateEquationInternalFlow, MomentumEquationPressureGradient,
-                            FluidStep, SolidWallNoSlipBC, EDACEquation,
-                            DeltaSPHCorrection, ComputeAuHatGTVF, GTVFSetP0)
-from sph_dem.rigid_body.rigid_body_3d import (UpdateSlaveBodyState,
+from pysph_rfc.fluids import (ContinuityEquation, StateEquation,
+                              StateEquationInternalFlow, MomentumEquationPressureGradient,
+                              FluidStep, SolidWallNoSlipBC, EDACEquation,
+                              DeltaSPHCorrection, ComputeAuHatGTVF, GTVFSetP0)
+from pysph_dem.rigid_body.rigid_body_3d import (UpdateSlaveBodyState,
                                                 UpdateTangentialContacts,
                                                 BodyForce,
                                                 SSHertzContactForce,
@@ -25,16 +25,20 @@ from sph_dem.rigid_body.rigid_body_3d import (UpdateSlaveBodyState,
                                                 SumUpExternalForces,
                                                 GTVFRigidBody3DMasterStep)
 
+from pysph_dem.rigid_body.rigid_body_3d_combined import (SumUpExternalForcesCombined,
+                                                         ResetForceRigidBody,
+                                                         RBRBCombinedContactForce,
+                                                         RBWCombinedContactForce,
+                                                         GTVFRigidBody3DCombinedStep)
+
 from sph_dem.rigid_body.rigid_body_3d import (RBStirrerForce)
+from sph_dem.particle_shifting.fluid import (ComputeNormals, SmoothNormals, IdentifyBoundaryParticleCosAngle)
 
 
 def add_rigid_fluid_properties_to_rigid_body(pa):
     add_properties(pa, 'arho')
     add_properties(pa, 'wij')
     add_properties(pa, 'ug', 'vf', 'uf', 'wf', 'vg', 'wg')
-
-    add_properties(pa, 'fx_p', 'fy_p', 'fz_p')
-    add_properties(pa, 'fx_v', 'fy_v', 'fz_v')
 
 
 class RigidFluidPressureForce(Equation):
@@ -48,19 +52,13 @@ class RigidFluidPressureForce(Equation):
         self.nu = nu
         super(RigidFluidPressureForce, self).__init__(dest, sources)
 
-    def initialize(self, d_idx, d_fx, d_fy, d_fz,
-                   d_fx_p, d_fy_p, d_fz_p):
+    def initialize(self, d_idx, d_fx, d_fy, d_fz):
         d_fx[d_idx] = 0.
         d_fy[d_idx] = 0.
         d_fz[d_idx] = 0.
 
-        d_fx_p[d_idx] = 0.
-        d_fy_p[d_idx] = 0.
-        d_fz_p[d_idx] = 0.
-
     def loop(self, d_rho, s_rho, d_idx, s_idx, d_p, s_p, s_m, d_m, d_fx, d_fy,
-             d_fz, d_fx_p, d_fy_p, d_fz_p,
-             DWIJ, XIJ, RIJ, SPH_KERNEL, HIJ, R2IJ, EPS, VIJ):
+             d_fz, DWIJ, XIJ, RIJ, SPH_KERNEL, HIJ, R2IJ, EPS, VIJ):
         rhoi2 = d_rho[d_idx] * d_rho[d_idx]
         rhoj2 = s_rho[s_idx] * s_rho[s_idx]
 
@@ -72,10 +70,6 @@ class RigidFluidPressureForce(Equation):
         d_fx[d_idx] += tmp * DWIJ[0]
         d_fy[d_idx] += tmp * DWIJ[1]
         d_fz[d_idx] += tmp * DWIJ[2]
-
-        d_fx_p[d_idx] += tmp * DWIJ[0]
-        d_fy_p[d_idx] += tmp * DWIJ[1]
-        d_fz_p[d_idx] += tmp * DWIJ[2]
 
         # # viscous forces
         # xdotdij = DWIJ[0]*XIJ[0] + DWIJ[1]*XIJ[1] + DWIJ[2]*XIJ[2]
@@ -99,21 +93,8 @@ class RigidFluidViscousForce(Equation):
         self.nu = nu
         super(RigidFluidViscousForce, self).__init__(dest, sources)
 
-    def initialize(self, d_idx, d_fx, d_fy, d_fz,
-                   d_fx_v, d_fy_v, d_fz_v):
-        d_fx[d_idx] = 0.
-        d_fy[d_idx] = 0.
-        d_fz[d_idx] = 0.
-        d_fx_v[d_idx] = 0.
-        d_fy_v[d_idx] = 0.
-        d_fz_v[d_idx] = 0.
-
     def loop(self, d_rho, s_rho, d_idx, s_idx, d_p, s_p, s_m, d_m, d_fx, d_fy,
-             d_fz,
-             d_fx_v,
-             d_fy_v,
-             d_fz_v,
-             DWIJ, XIJ, RIJ, SPH_KERNEL, HIJ, R2IJ, EPS, VIJ):
+             d_fz, DWIJ, XIJ, RIJ, SPH_KERNEL, HIJ, R2IJ, EPS, VIJ):
         # viscous forces
         xdotdij = DWIJ[0]*XIJ[0] + DWIJ[1]*XIJ[1] + DWIJ[2]*XIJ[2]
         tmp_1 = s_m[s_idx] * 4 * self.nu * xdotdij
@@ -124,32 +105,100 @@ class RigidFluidViscousForce(Equation):
         d_fy[d_idx] += d_m[d_idx] * fac * VIJ[1]
         d_fz[d_idx] += d_m[d_idx] * fac * VIJ[2]
 
-        d_fx_v[d_idx] += d_m[d_idx] * fac * VIJ[0]
-        d_fy_v[d_idx] += d_m[d_idx] * fac * VIJ[1]
-        d_fz_v[d_idx] += d_m[d_idx] * fac * VIJ[2]
+
+class RigidFluidViscousForce(Equation):
+    """Force on rigid body due to the interaction with fluid.
+    The force equation is taken from SPH-DCDEM paper by Canelas
+
+    nu: dynamics viscosity of the fluid
+
+    """
+    def __init__(self, dest, sources, nu=0):
+        self.nu = nu
+        super(RigidFluidViscousForce, self).__init__(dest, sources)
+
+    def loop(self, d_idx, s_idx, d_m, d_rho, s_rho, s_m, d_fx,
+             d_fy, d_fz, VIJ, R2IJ, EPS, DWIJ, XIJ):
+        xdotdij = DWIJ[0]*XIJ[0] + DWIJ[1]*XIJ[1] + DWIJ[2]*XIJ[2]
+
+        tmp1 = 4 * self.nu * xdotdij
+
+        tmp2 = s_m[s_idx]/(d_rho[d_idx] + s_rho[s_idx])
+        fac = d_m[d_idx] * tmp1 * tmp2 * xdotdij/(R2IJ + EPS)
+
+        d_fx[d_idx] += fac * VIJ[0]
+        d_fy[d_idx] += fac * VIJ[1]
+        d_fz[d_idx] += fac * VIJ[2]
 
 
 class MomentumEquationViscosityRigidBody(Equation):
     """BD Rogers FSI paper equation 26"""
-    def __init__(self, dest, sources, nu=1e-6):
+    def __init__(self, dest, sources, nu=0):
         self.nu = nu
         super(MomentumEquationViscosityRigidBody, self).__init__(dest, sources)
 
     def loop(self, d_idx, s_idx, d_rho, s_rho, s_m, d_au,
              d_av, d_aw, VIJ, R2IJ, EPS, DWIJ, XIJ):
-        etai = self.nu * d_rho[d_idx]
-        etaj = self.nu * s_rho[s_idx]
-
-        etaij = 4 * (etai * etaj)/(etai + etaj)
-
         xdotdij = DWIJ[0]*XIJ[0] + DWIJ[1]*XIJ[1] + DWIJ[2]*XIJ[2]
 
-        tmp = s_m[s_idx]/(d_rho[d_idx] * s_rho[s_idx])
-        fac = tmp * etaij * xdotdij/(R2IJ + EPS)
+        tmp1 = 4 * self.nu * xdotdij
+
+        tmp2 = s_m[s_idx]/(d_rho[d_idx] + s_rho[s_idx])
+        fac = tmp1 * tmp2 * xdotdij/(R2IJ + EPS)
 
         d_au[d_idx] += fac * VIJ[0]
         d_av[d_idx] += fac * VIJ[1]
         d_aw[d_idx] += fac * VIJ[2]
+
+
+class ComputeAuHatETVFSun2019(Equation):
+    def __init__(self, dest, sources, mach_no, u_max, rho0, dim=2, pst_R=0.5):
+        self.mach_no = mach_no
+        self.u_max = u_max
+        self.dim = dim
+        self.rho0 = rho0
+        self.pst_R = pst_R
+        super(ComputeAuHatETVFSun2019, self).__init__(dest, sources)
+
+    def initialize(self, d_idx, d_auhat, d_avhat, d_awhat):
+        d_auhat[d_idx] = 0.0
+        d_avhat[d_idx] = 0.0
+        d_awhat[d_idx] = 0.0
+
+    def loop(self, d_idx, s_idx, s_rho, s_m, d_h, d_auhat, d_avhat, d_awhat,
+             d_c0_ref, d_wdeltap, d_n, WIJ, SPH_KERNEL, DWIJ, XIJ,
+             RIJ, dt):
+        fab = 0.
+        # this value is directly taken from the paper
+        R = self.pst_R
+
+        if d_wdeltap[0] > 0.:
+            fab = WIJ / d_wdeltap[0]
+            fab = pow(fab, d_n[0])
+
+        tmp = self.mach_no * d_c0_ref[0] * 2. * d_h[d_idx] / dt
+
+        tmp1 = s_m[s_idx] / self.rho0
+
+        d_auhat[d_idx] -= tmp * tmp1 * (1. + R * fab) * DWIJ[0]
+        d_avhat[d_idx] -= tmp * tmp1 * (1. + R * fab) * DWIJ[1]
+        d_awhat[d_idx] -= tmp * tmp1 * (1. + R * fab) * DWIJ[2]
+
+    def post_loop(self, d_idx, d_rho, d_h, d_normal, d_auhat, d_avhat,
+                  d_awhat, d_is_boundary, d_normal_norm):
+        """Save the auhat avhat awhat
+        First we make all the particles with div_r < dim - 0.5 as zero.
+
+        Now if the particle is a free surface particle and not a free particle,
+        which identified through our normal code (d_h_b < d_h), we cut off the
+        normal component
+
+        """
+        if d_normal_norm[d_idx] > 1e-6:
+            # since it is boundary make its shifting acceleration zero
+            d_auhat[d_idx] = 0.
+            d_avhat[d_idx] = 0.
+            d_awhat[d_idx] = 0.
 
 
 class ParticlesFluidScheme(Scheme):
@@ -158,7 +207,7 @@ class ParticlesFluidScheme(Scheme):
                  rigid_bodies_slave,
                  rigid_bodies_wall,
                  stirrer,
-                 dim, c0, nu, rho0, h,
+                 dim, c0, nu, rho0, mach_no, u_max, h,
                  pb=0.0, gx=0.0, gy=0.0, gz=0.0,
                  alpha=0.0, en=1.0, fric_coeff=0.5,
                  gamma=0.):
@@ -166,6 +215,8 @@ class ParticlesFluidScheme(Scheme):
         self.nu = nu
         self.h = h
         self.rho0 = rho0
+        self.mach_no = mach_no
+        self.u_max = u_max
         self.pb = pb
         self.gx = gx
         self.gy = gy
@@ -188,6 +239,9 @@ class ParticlesFluidScheme(Scheme):
         self.en = en
         self.fric_coeff = fric_coeff
         self.gamma = gamma
+
+        # particle shifting
+        self.pst_R = 0.5
 
         self.attributes_changed()
 
@@ -221,10 +275,11 @@ class ParticlesFluidScheme(Scheme):
                            type=float,
                            help="Surface energy")
 
-        group.add_argument("--nu", action="store",
-                           dest="nu", default=0.,
+        group.add_argument("--pst-R", action="store",
+                           dest="pst_R", default=0.5,
                            type=float,
-                           help="Coefficient of viscosity")
+                           help="PST R value")
+
 
         # add_bool_argument(
         #     group,
@@ -239,7 +294,7 @@ class ParticlesFluidScheme(Scheme):
             'fric_coeff',
             'en',
             'gamma',
-            'nu'
+            'pst_R'
         ]
         data = dict((var, self._smart_getattr(options, var)) for var in vars)
         self.configure(**data)
@@ -384,6 +439,39 @@ class ParticlesFluidScheme(Scheme):
 
             stage2.append(Group(equations=eqs, real=False))
 
+        # ==================================================================
+        # Compute the boundary particles, this is for PST
+        # ==================================================================
+        tmp = []
+        for fluid in self.fluids:
+            tmp.append(
+                ComputeNormals(dest=fluid,
+                               sources=self.fluids+self.boundaries+rb_fluid))
+        stage2.append(Group(equations=tmp, real=False))
+
+        tmp = []
+        for fluid in self.fluids:
+            tmp.append(
+                SmoothNormals(dest=fluid,
+                              sources=[fluid]))
+        stage2.append(Group(equations=tmp, real=False))
+
+        tmp = []
+        for dest in self.fluids:
+            # # the sources here will the particle array and the boundaries
+            # if boundaries == None:
+            #     srcs = [dest]
+            # else:
+            #     srcs = list(set([dest] + boundaries))
+
+            # srcs = [dest]
+            srcs = list(set([dest] + rb_fluid))
+            tmp.append(IdentifyBoundaryParticleCosAngle(dest=dest, sources=srcs))
+        stage2.append(Group(equations=tmp, real=False))
+        # ==================================================================
+        # Compute the boundary particles, this is for PST ends
+        # ==================================================================
+
         eqs = []
         for fluid in self.fluids:
             if self.alpha > 0.:
@@ -417,30 +505,19 @@ class ParticlesFluidScheme(Scheme):
                                                  sources=all+rb_fluid,
                                                  gx=self.gx, gy=self.gy,
                                                  gz=self.gz), )
+            # eqs.append(
+            #     MomentumEquationPressureGradient(dest=fluid,
+            #                                      sources=all,
+            #                                      gx=self.gx, gy=self.gy,
+            #                                      gz=self.gz), )
+            eqs.append(
+                ComputeAuHatETVFSun2019(dest=fluid, sources=all+rb_fluid,
+                                        mach_no=self.mach_no,
+                                        u_max=self.u_max,
+                                        rho0=self.rho0,
+                                        pst_R=self.pst_R))
 
         stage2.append(Group(equations=eqs, real=True))
-
-        # Compute the force on the rigid bodies due to fluid
-        if len(rb_fluid) > 0:
-            eqs = []
-            for body in rb_fluid:
-                eqs.append(
-                    RigidFluidPressureForce(dest=body, sources=self.fluids,
-                                            nu=self.nu))
-                eqs.append(
-                    RigidFluidViscousForce(dest=body,
-                                           sources=self.fluids,
-                                           nu=self.nu))
-
-            stage2.append(Group(equations=eqs, real=True))
-
-        g1 = []
-        for body in self.rigid_bodies_master:
-            g1.append(
-                # see the previous examples and write down the sources
-                UpdateTangentialContacts(
-                    dest=body, sources=self.rigid_bodies_master))
-        stage2.append(Group(equations=g1, real=False))
 
         g2 = []
         for body in self.rigid_bodies_master:
@@ -450,43 +527,6 @@ class ParticlesFluidScheme(Scheme):
                           gx=self.gx,
                           gy=self.gy,
                           gz=self.gz))
-
-        for body in self.rigid_bodies_master:
-            g2.append(SSHertzContactForce(dest=body,
-                                          sources=self.rigid_bodies_master,
-                                          en=self.en,
-                                          fric_coeff=self.fric_coeff))
-            # g2.append(SSDMTContactForce(dest=body,
-            #                             sources=self.rigid_bodies_master,
-            #                             gamma=self.gamma))
-
-            if len(self.rigid_bodies_wall) > 0:
-                g2.append(SWHertzContactForce(dest=body,
-                                              sources=self.rigid_bodies_wall,
-                                              en=self.en,
-                                              fric_coeff=self.fric_coeff))
-
-        stage2.append(Group(equations=g2, real=False))
-
-        # Compute force on the rigid body slave due to interaction with the
-        # stirrer
-        if len(self.stirrer) > 0:
-            # computation of total force and torque at center of mass
-            g6 = []
-            for name in self.rigid_bodies_slave:
-                g6.append(RBStirrerForce(dest=name, sources=self.stirrer,
-                                         en=self.en,
-                                         fric_coeff=self.fric_coeff))
-
-            stage2.append(Group(equations=g6, real=False))
-
-        # computation of total force and torque at center of mass
-        g6 = []
-        for name in self.rigid_bodies_master:
-            g6.append(SumUpExternalForces(
-                dest=name, sources=[name[:-6:]+"slave"]))
-
-        stage2.append(Group(equations=g6, real=False))
 
         return MultiStageEquations([stage1, stage2])
 

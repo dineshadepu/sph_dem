@@ -1,0 +1,1 @@
+{"fname": "single_particle_swelling_in_hs_tank", "output_dir": "/home/adepudinesh/post_doc/softwares/sph_dem/examples/swelling_examples/single_particle_swelling_in_hs_tank_2_ouput", "args": ["--openmp", "--pfreq", "50", "-d", "single_particle_swelling_in_hs_tank_2_ouput"], "completed": true, "cpu_time": 37.53367829322815}

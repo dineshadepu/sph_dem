@@ -171,6 +171,10 @@ if __name__ == '__main__':
         # fluids examples
         Fluids01DamBreak2D,
         Fluids02DamBreak3D,
+
+        # rigid body examples
+        RB01SingleBody,
+        RB02TwoBody,
     ]
 
     automator = Automator(

@@ -31,7 +31,7 @@ M_PI = pi
 
 from pysph.examples.solid_mech.impact import add_properties
 
-from pysph_dem.rigid_body.compute_rigid_body_properties import add_properties_stride
+from sph_dem.rigid_body.compute_rigid_body_properties import add_properties_stride
 from pysph_dem.swelling import (ComputeSwelling)
 
 

@@ -198,6 +198,7 @@ def create_wedge_1(half_length=0.25, angle=30, spacing=3*1e-3):
     z = np.zeros_like(x)
     return x, y
 
+
 def get_fluid_tank_3d(fluid_length,
                       fluid_height,
                       fluid_depth,
@@ -372,3 +373,180 @@ def get_files_at_given_times_from_log(files, times, logfile):
 # plt.axes().set_aspect('equal')
 # plt.scatter(x, y)
 # plt.show()
+
+def get_cylindrical_fluid_tank_3d(fluid_length,
+                                  fluid_height,
+                                  fluid_depth,
+                                  tank_length,
+                                  tank_height,
+                                  tank_layers,
+                                  fluid_spacing,
+                                  tank_spacing,
+                                  hydrostatic=False):
+    """
+    length is in x-direction
+    height is in y-direction
+    depth is in z-direction
+    """
+    # discretize the fluid in y direction
+    extended_height = tank_height + tank_layers * fluid_spacing
+    y_layer = np.arange(0., extended_height, fluid_spacing)
+    x = np.array([])
+    z = np.array([])
+    y = np.array([])
+    for i in range(len(y_layer)):
+    # for i in range(1):
+        # print(i)
+        diameter = fluid_length + 2. * tank_layers * fluid_spacing
+        _x, _z = create_circle_1(diameter, fluid_spacing)
+        _y = np.ones_like(_x) * y_layer[i]
+
+        x = np.concatenate((x, _x))
+        y = np.concatenate((y, _y))
+        z = np.concatenate((z, _z))
+
+    # remove particles outside the circle
+    fluid_min = min(y_layer) + (tank_layers - 1) * fluid_spacing
+    indices_fluid = []
+    indices_tank_deletable = []
+    for i in range(len(x)):
+        if y[i] > fluid_min and y[i] <= fluid_height:
+            if np.sqrt(x[i]*x[i] + z[i]*z[i]) - fluid_length/2. < 1e-10:
+                indices_tank_deletable.append(i)
+                indices_fluid.append(i)
+        else:
+            if y[i] > fluid_height:
+                if np.sqrt(x[i]*x[i] + z[i]*z[i]) - fluid_length/2. < 1e-10:
+                    indices_tank_deletable.append(i)
+
+    x_fluid = x[indices_fluid]
+    y_fluid = y[indices_fluid]
+    z_fluid = z[indices_fluid]
+    x_tank = np.delete(x, indices_tank_deletable)
+    y_tank = np.delete(y, indices_tank_deletable)
+    z_tank = np.delete(z, indices_tank_deletable)
+
+    # create the bottom of the tank
+
+
+    return x_fluid, y_fluid, z_fluid, x_tank, y_tank, z_tank
+
+
+def get_3d_block_rfc(dx=0.01, width=1.0, length=1.0, depth=1.0,
+                     center=np.array([0., 0., 0.])):
+    """
+    Generates a 3d block of particles with the length, height and depth
+    parallel to x, y and z axis respectively.
+
+    Paramters
+    ---------
+    dx : a number which is the spacing required
+    width : a number which is the length of the block
+    length : a number which is the height of the block
+    depth : a number which is the depth of the block
+    center : 1d array like object which is the center of the block
+
+    Returns
+    -------
+    x : 1d numpy array with x coordinates of the block particles
+    y : 1d numpy array with y coordinates of the block particles
+    z : 1d numpy array with z coordinates of the block particles
+    """
+
+    n1 = int(width / dx) + 1
+    n2 = int(length / dx) + 1
+    n3 = int(depth / dx) + 1
+    x, y, z = np.mgrid[-width / 2.:width / 2.:n1 * 1j, -length /
+                       2.:length / 2.:n2 * 1j, -depth / 2.:depth / 2.:n3 * 1j]
+    x, y, z = np.ravel(x), np.ravel(y), np.ravel(z)
+    return x + center[0], y + center[1], z + center[2]
+
+
+def get_fluid_tank_new_rfc_3d(fluid_width,
+                              fluid_length,
+                              fluid_depth,
+                              tank_length,
+                              tank_depth,
+                              tank_layers,
+                              fluid_spacing,
+                              tank_spacing,
+                              hydrostatic=False):
+    """We follow this figure in this page
+    https://en.wikipedia.org/wiki/Three-dimensional_space, and the papers follow
+    similar notation.
+
+    X x Y x Z
+
+    X is the width (out of the plane)
+    Y is the length (in plane length)
+    Z is the depth (in plane height)
+
+    A better example to see is
+    https://www.sciencedirect.com/science/article/pii/S0029801821016644#sec3
+
+    3.2 cube floating example
+    """
+    xf, yf, zf = get_3d_block_rfc(dx=fluid_spacing,
+                                  width=fluid_width,
+                                  length=fluid_length,
+                                  depth=fluid_depth)
+
+    # create a tank layer on the left
+    xt_left, yt_left, zt_left = get_3d_block_rfc(dx=fluid_spacing,
+                                                 width=fluid_width,
+                                                 length=tank_spacing * (tank_layers - 1),
+                                                 depth=tank_depth)
+
+    xt_right, yt_right, zt_right = get_3d_block_rfc(dx=fluid_spacing,
+                                                    width=fluid_width,
+                                                    length=tank_spacing * (tank_layers - 1),
+                                                    depth=tank_depth)
+
+    # adjust the left wall of tank
+    xt_left += np.min(xf) - np.min(xt_left)
+    yt_left += np.min(yf) - np.max(yt_left) - fluid_spacing
+    zt_left += np.min(zf) - np.min(zt_left)
+
+    # adjust the right wall of tank
+    xt_right += np.min(xf) - np.min(xt_right)
+    yt_right += np.max(yf) - np.min(yt_right) + fluid_spacing
+    zt_right += np.min(zf) - np.min(zt_right)
+    if hydrostatic is False:
+        yt_right += tank_length - fluid_length
+
+    # create the wall in the front
+    xt_front, yt_front, zt_front = get_3d_block_rfc(
+        dx=fluid_spacing,
+        width=tank_spacing * (tank_layers - 1),
+        length=np.max(yt_right) - np.min(yt_left),
+        depth=tank_depth)
+    xt_front += np.max(xt_left) - np.min(xt_front) + fluid_spacing * 1.
+    yt_front += np.min(yt_left) - np.min(yt_front) + 0. * tank_spacing
+    zt_front += np.min(zt_left) - np.min(zt_front)
+
+    # create the wall in the front
+    xt_back, yt_back, zt_back = get_3d_block_rfc(
+        dx=fluid_spacing,
+        width=tank_spacing * (tank_layers - 1),
+        length=np.max(yt_right) - np.min(yt_left),
+        depth=tank_depth)
+    xt_back -= np.max(xt_back) - np.min(xt_left) + fluid_spacing * 1.
+    yt_back += np.min(yt_left) - np.min(yt_back) + 0. * tank_spacing
+    zt_back += np.min(zt_left) - np.min(zt_back)
+
+    # create the wall in the bottom
+    xt_bottom, yt_bottom, zt_bottom = get_3d_block_rfc(
+        dx=fluid_spacing,
+        width=np.max(xt_front) - np.min(xt_back),
+        length=np.max(yt_right) - np.min(yt_left),
+        depth=tank_spacing * (tank_layers - 1))
+
+    xt_bottom += np.max(xt_front) - np.max(xt_bottom)
+    yt_bottom += np.min(yt_left) - np.min(yt_bottom)
+    zt_bottom -= np.max(zt_bottom) - np.min(zt_left)
+    zt_bottom -= fluid_spacing * 1.
+
+    xt = np.concatenate([xt_left, xt_right, xt_front, xt_back, xt_bottom])
+    yt = np.concatenate([yt_left, yt_right, yt_front, yt_back, yt_bottom])
+    zt = np.concatenate([zt_left, zt_right, zt_front, zt_back, zt_bottom])
+    return xf, yf, zf, xt, yt, zt

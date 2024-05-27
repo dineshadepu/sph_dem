@@ -87,6 +87,7 @@ def setup_rigid_body(pa, dim, total_no_of_walls=3):
         np.zeros(3 * nb, dtype=float),
         'R': [1., 0., 0., 0., 1., 0., 0., 0., 1.] * nb,
         'R0': [1., 0., 0., 0., 1., 0., 0., 0., 1.] * nb,
+        'q': [1., 0., 0., 0.] * nb,
         # moment of inertia izz (this is only for 2d)
         'izz':
         np.zeros(nb, dtype=float),
@@ -236,7 +237,8 @@ def get_master_and_slave_rb(body):
 
     add_properties(master, 'total_mass', 'omega_x', 'omega_y', 'omega_z',
                    'ang_mom_x', 'ang_mom_y', 'ang_mom_z', 'fx', 'fy', 'fz',
-                   'torque_x', 'torque_y', 'torque_z', 'E', 'nu', 'rad_s', 'm_b')
+                   'torque_x', 'torque_y', 'torque_z', 'E', 'nu', 'rad_s', 'm_b',
+                   'izz', 'rotation_angle')
 
     add_properties_stride(master, 9,
                           'R',
@@ -245,12 +247,15 @@ def get_master_and_slave_rb(body):
                           'inertia_tensor_global_frame',
                           'inertia_tensor_inverse_global_frame')
 
+    add_properties_stride(master, 4, 'q')
+
     master.add_property('body_limits', stride=2, type='int')
     master.body_limits[:] = body.body_limits[:]
 
     # copy properties from body to master
     master.m[:] = body.total_mass[:]
     master.m_b[:] = master.m[:]
+    master.izz[:] = body.izz[:]
     master.x[:] = body.xcm[::3]
     master.y[:] = body.xcm[1::3]
     master.z[:] = body.xcm[2::3]
@@ -270,6 +275,7 @@ def get_master_and_slave_rb(body):
     master.dem_id[:] = 0
 
     master.R[:] = body.R[:]
+    master.q[:] = body.q[:]
     master.inertia_tensor_body_frame[:] = body.inertia_tensor_body_frame[:]
     master.inertia_tensor_inverse_body_frame[:] = body.inertia_tensor_inverse_body_frame[:]
     master.inertia_tensor_global_frame[:] = body.inertia_tensor_global_frame[:]
@@ -308,6 +314,7 @@ def get_master_and_slave_rb(body):
     slave.add_property('dem_id', type='int', data=body.dem_id)
     slave.add_constant('total_mass', body.total_mass)
     slave.add_constant('max_no_walls', [body.max_no_walls[0]])
+    slave.add_output_arrays(['body_id'])
 
     return master, slave
 
@@ -344,7 +351,7 @@ def add_contact_properties_body_master(pa, max_no_tng_contacts_limit,
         'ss_fn', 'ss_overlap',
         'fn_sw', 'overlap_sw',
         'tng_sw_x', 'tng_sw_y', 'tng_sw_z',
-        'tng_ss_x', 'tng_ss_y', 'tng_ss_z'
+        'tng_ss_x', 'tng_ss_y', 'tng_ss_z',
     ])
 
 
@@ -410,6 +417,88 @@ class RBStirrerForce(Equation):
             d_fx[d_idx] += fn_x
             d_fy[d_idx] += fn_y
             d_fz[d_idx] += fn_z
+
+
+class GTVFRigidBody2DMasterStep(IntegratorStep):
+    def stage1(self, d_idx, d_u, d_v, d_w, d_m_b,
+               d_fx, d_fy, d_fz,
+               d_torque_z,
+               d_omega_z,
+               d_izz,
+               d_au,
+               d_av,
+               d_aw,
+               dt):
+        # i, didx9 = declare('int', 2)
+        # ang_mom, omega = declare('matrix(3)', 2)
+        # moi = declare('matrix(9)', 1)
+        dtb2 = dt / 2.
+        # didx9 = 9 * d_idx
+        # using velocity at t, move position
+        # to t + dt/2.
+        d_au[d_idx] = d_fx[d_idx] / d_m_b[d_idx]
+        d_av[d_idx] = d_fy[d_idx] / d_m_b[d_idx]
+        # d_aw[d_idx] = d_fz[d_idx] / d_m_b[d_idx]
+        d_u[d_idx] = d_u[d_idx] + dtb2 * d_au[d_idx]
+        d_v[d_idx] = d_v[d_idx] + dtb2 * d_av[d_idx]
+        # d_w[d_idx] = d_w[d_idx] + dtb2 * d_aw[d_idx]
+
+        d_omega_z[d_idx] += d_torque_z[d_idx] / d_izz[d_idx] * dtb2
+
+    def stage2(self, d_idx, d_u, d_v, d_w,
+               d_x, d_y, d_z,
+               d_omega_z,
+               d_rotation_angle,
+               d_R,
+               dt):
+        didx9, i = declare('int', 3)
+        R, R_t, R_dot, omega_mat = declare('matrix(9)', 4)
+        didx9 = 9 * d_idx
+
+        # using velocity at t, move position
+        # to t + dt/2.
+        d_x[d_idx] = d_x[d_idx] + dt * d_u[d_idx]
+        d_y[d_idx] = d_y[d_idx] + dt * d_v[d_idx]
+        d_z[d_idx] = d_z[d_idx] + dt * d_w[d_idx]
+
+        d_rotation_angle[d_idx] += d_omega_z[d_idx] * dt
+        # update the rotation matrix
+        d_R[didx9 + 0] = cos(d_rotation_angle[d_idx])
+        d_R[didx9 + 1] = -sin(d_rotation_angle[d_idx])
+        d_R[didx9 + 2] = 0.
+
+        d_R[didx9 + 3] = sin(d_rotation_angle[d_idx])
+        d_R[didx9 + 4] = cos(d_rotation_angle[d_idx])
+        d_R[didx9 + 5] = 0.
+
+        d_R[didx9 + 6] = 0.
+        d_R[didx9 + 7] = 0.
+        d_R[didx9 + 8] = 1.
+
+    def stage3(self, d_idx, d_u, d_v, d_w, d_m_b,
+               d_fx, d_fy, d_fz,
+               d_torque_z,
+               d_omega_z,
+               d_izz,
+               d_au,
+               d_av,
+               d_aw,
+               dt):
+        i, didx9 = declare('int', 2)
+        ang_mom, omega = declare('matrix(3)', 2)
+        moi = declare('matrix(9)', 1)
+        dtb2 = dt / 2.
+        didx9 = 9 * d_idx
+        # using velocity at t, move position
+        # to t + dt/2.
+        d_au[d_idx] = d_fx[d_idx] / d_m_b[d_idx]
+        d_av[d_idx] = d_fy[d_idx] / d_m_b[d_idx]
+        d_aw[d_idx] = d_fz[d_idx] / d_m_b[d_idx]
+        d_u[d_idx] = d_u[d_idx] + dtb2 * d_au[d_idx]
+        d_v[d_idx] = d_v[d_idx] + dtb2 * d_av[d_idx]
+        d_w[d_idx] = d_w[d_idx] + dtb2 * d_aw[d_idx]
+
+        d_omega_z[d_idx] += d_torque_z[d_idx] / d_izz[d_idx] * dtb2
 
 
 class GTVFRigidBody3DMasterStep(IntegratorStep):

@@ -80,6 +80,8 @@ def set_moment_of_inertia_and_its_inverse(pa):
         pa.inertia_tensor_global_frame[9 * i:9 * i + 9] = I[:]
         # set the moment of inertia inverse in global frame
         pa.inertia_tensor_inverse_global_frame[9 * i:9 * i + 9] = I_inv[:]
+        # set the two d moment of intertia
+        pa.izz[:] = I[8]
 
 
 def set_body_frame_position_vectors(pa):

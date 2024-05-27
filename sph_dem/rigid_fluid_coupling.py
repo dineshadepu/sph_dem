@@ -1,3 +1,8 @@
+"""
+Investigations on the hydroelastic slamming of deformable wedges by using the smoothed particle element method
+
+https://www.sciencedirect.com/science/article/pii/S0889974622001311#sec2
+"""
 import numpy
 import numpy as np
 
@@ -161,6 +166,7 @@ class ParticlesFluidScheme(Scheme):
                  dim, c0, nu, rho0, h,
                  pb=0.0, gx=0.0, gy=0.0, gz=0.0,
                  alpha=0.0, en=1.0, fric_coeff=0.5,
+                 en_wall=1.0, fric_coeff_wall=0.5,
                  gamma=0.):
         self.c0 = c0
         self.nu = nu
@@ -187,6 +193,8 @@ class ParticlesFluidScheme(Scheme):
 
         self.en = en
         self.fric_coeff = fric_coeff
+        self.en_wall = en_wall
+        self.fric_coeff_wall = fric_coeff_wall
         self.gamma = gamma
 
         self.attributes_changed()
@@ -216,6 +224,16 @@ class ParticlesFluidScheme(Scheme):
                            type=float,
                            help="Coefficient of restitution")
 
+        group.add_argument("--fric-coeff-wall", action="store",
+                           dest="fric_coeff_wall", default=0.5,
+                           type=float,
+                           help="Friction coefficient wall")
+
+        group.add_argument("--en-wall", action="store",
+                           dest="en_wall", default=0.1,
+                           type=float,
+                           help="Coefficient of restitution wall")
+
         group.add_argument("--gamma", action="store",
                            dest="gamma", default=0.0,
                            type=float,
@@ -238,6 +256,8 @@ class ParticlesFluidScheme(Scheme):
             'alpha',
             'fric_coeff',
             'en',
+            'fric_coeff_wall',
+            'en_wall',
             'gamma',
             'nu'
         ]
@@ -463,8 +483,8 @@ class ParticlesFluidScheme(Scheme):
             if len(self.rigid_bodies_wall) > 0:
                 g2.append(SWHertzContactForce(dest=body,
                                               sources=self.rigid_bodies_wall,
-                                              en=self.en,
-                                              fric_coeff=self.fric_coeff))
+                                              en=self.en_wall,
+                                              fric_coeff=self.fric_coeff_wall))
 
         stage2.append(Group(equations=g2, real=False))
 

@@ -47,6 +47,14 @@ def add_boundary_identification_properties(pa):
     pa.add_property('is_boundary', type='int')
 
 
+def add_swelling_properties_to_rigid_body_hu_2d(pa):
+    add_properties(pa, 'D_lp', 'D_0', 'decay_delta', 'c_wp', 'c_max', 'S_lp',
+                   'c_wl', 'c_wp', 'm_dot_lp', 'm_w_t', 'm_p_0', 'rho_w',
+                   'v_s_0', 'v_s_t', 'v_w_t', 'd_p', 'rad_s_prev', 'radial_vel_count',
+                   'radial_vel_count_max'
+                   )
+
+
 class RigidFluidPressureForce(Equation):
     """Force on rigid body due to the interaction with fluid.
     The force equation is taken from SPH-DCDEM paper by Canelas

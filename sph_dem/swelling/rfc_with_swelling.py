@@ -535,14 +535,14 @@ class ParticlesFluidScheme(Scheme):
             #                                      sources=all,
             #                                      gx=self.gx, gy=self.gy,
             #                                      gz=self.gz), )
-            eqs.append(
-                ComputeAuHatETVFSun2019(dest=fluid, sources=all+rb_fluid,
-                                        mach_no=self.mach_no,
-                                        u_max=self.u_max,
-                                        rho0=self.rho0,
-                                        pst_R=self.pst_R,
-                                        pst_y_pos_limit=self.pst_y_pos_limit
-                                        ))
+            # eqs.append(
+            #     ComputeAuHatETVFSun2019(dest=fluid, sources=all+rb_fluid,
+            #                             mach_no=self.mach_no,
+            #                             u_max=self.u_max,
+            #                             rho0=self.rho0,
+            #                             pst_R=self.pst_R,
+            #                             pst_y_pos_limit=self.pst_y_pos_limit
+            #                             ))
 
         stage2.append(Group(equations=eqs, real=True))
 

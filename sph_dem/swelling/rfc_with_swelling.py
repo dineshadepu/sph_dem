@@ -51,8 +51,7 @@ def add_swelling_properties_to_rigid_body_hu_2d(pa):
     add_properties(pa, 'D_lp', 'D_0', 'decay_delta', 'c_wp', 'c_max', 'S_lp',
                    'c_wl', 'c_wp', 'm_dot_lp', 'm_w_t', 'm_p_0', 'rho_w',
                    'v_s_0', 'v_s_t', 'v_w_t', 'd_p', 'rad_s_prev', 'radial_vel_count',
-                   'radial_vel_count_max'
-                   )
+                   'radial_vel_count_max', 'm_dot_pp', 'S_ab', 'swell_amount')
 
 
 class RigidFluidPressureForce(Equation):
@@ -223,6 +222,34 @@ class ComputeAuHatETVFSun2019(Equation):
             d_auhat[d_idx] = 0.
             d_avhat[d_idx] = 0.
             d_awhat[d_idx] = 0.
+
+
+class ComputeContactAreaForSphereSphereDEMParticles(Equation):
+    def initialize(self, d_idx, d_S_ab, d_m_dot_pp):
+        d_S_ab[d_idx] = 0.0
+        d_m_dot_pp[d_idx] = 0.
+
+    def loop(self, d_idx, d_u, d_v, d_w,
+             XIJ, RIJ, d_rad_s, s_rad_s, s_idx,
+             d_S_ab, d_c_wp, s_c_wp, d_m_dot_pp,
+             d_D_lp, dt, t):
+        # check the particles are not on top of each other.
+        if RIJ > 1e-12:
+            overlap = d_rad_s[d_idx] + s_rad_s[s_idx] - RIJ
+
+        # ---------- force computation starts ------------
+        # if particles are overlapping
+        if overlap > 0:
+            S_ab_local = (4. * d_rad_s[d_idx] * overlap - overlap**2.)**0.5
+            d_S_ab[d_idx] += (4. * d_rad_s[d_idx] * overlap - overlap**2.)**0.5
+            rad_con = S_ab_local / 2.
+            conc_diff = d_c_wp[d_idx] - s_c_wp[s_idx]
+            # d_m_dot_pp[d_idx] += (
+            #     S_ab_local * d_D_lp[d_idx] * conc_diff) / (
+            #         rad_con)
+
+            # simplified expression (cancel out S_ab_local with rad_con for 2D case)
+            d_m_dot_pp[d_idx] += (2. * d_D_lp[d_idx] * conc_diff)
 
 
 class ParticlesFluidScheme(Scheme):
@@ -582,6 +609,10 @@ class ParticlesFluidScheme(Scheme):
                                           sources=self.rigid_bodies_master,
                                           en=self.en,
                                           fric_coeff=self.fric_coeff))
+            g2.append(ComputeContactAreaForSphereSphereDEMParticles(
+                dest=body,
+                sources=self.rigid_bodies_master))
+
             # g2.append(SSDMTContactForce(dest=body,
             #                             sources=self.rigid_bodies_master,
             #                             gamma=self.gamma))

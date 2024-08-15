@@ -68,8 +68,7 @@ class MakeForcesZeroOnRigidBody(Equation):
 
 
 class AddRadialVelocityToSlaveBody(Equation):
-    def __init__(self, dest, sources, swell_amount, max_radius):
-        self.swell_amount = swell_amount
+    def __init__(self, dest, sources, max_radius):
         self.max_radius = max_radius
         super(AddRadialVelocityToSlaveBody, self).__init__(dest, sources)
 
@@ -130,11 +129,11 @@ class AddRadialVelocityToSlaveBody(Equation):
             d_v[d_idx] = s_v[bid] + dv
             d_w[d_idx] = s_w[bid] + dw
             d_u[d_idx] += nx * s_swell_amount[bid] / (
-                s_radial_vel_count_max[0] * dt) * 1.3
+                s_radial_vel_count_max[0] * dt) * 2.
             d_v[d_idx] += ny * s_swell_amount[bid] / (
-                s_radial_vel_count_max[0] * dt) * 1.3
+                s_radial_vel_count_max[0] * dt) * 2.
             d_w[d_idx] += nz * s_swell_amount[bid] / (
-                s_radial_vel_count_max[0] * dt) * 1.3
+                s_radial_vel_count_max[0] * dt) * 2.
 
             # d_u[d_idx] = s_u[bid] + du + nx * self.swell_amount / dt**0.5
             # d_v[d_idx] = s_v[bid] + dv + ny * self.swell_amount / dt**0.5
@@ -208,7 +207,7 @@ class Problem(Application):
         self.rigid_body_velocity = 0.
         self.no_of_layers = self.options.no_of_layers
         # self.no_of_bodies = 3 * self.options.no_of_layers
-        self.no_of_bodies = 17 * 3
+        self.no_of_bodies = 1
 
         # # x - axis
         # self.fluid_length = self.options.fluid_length_ratio * self.rigid_body_diameter
@@ -218,9 +217,9 @@ class Problem(Application):
         # self.fluid_depth = 0.
 
         # x - axis
-        self.fluid_length = 14.0 * 1.5 * self.rigid_body_diameter
+        self.fluid_length = 3 * 1.5 * self.rigid_body_diameter
         # y - axis
-        self.fluid_height = 5 * self.rigid_body_diameter
+        self.fluid_height = 3 * self.rigid_body_diameter
         # z - axis
         self.fluid_depth = 0.
 
@@ -338,31 +337,7 @@ class Problem(Application):
         return fluid, tank
 
     def create_bodies(self):
-        x1, y1 = create_circle_1(self.rigid_body_diameter, self.dx)
-        x = np.array([])
-        y = np.array([])
-        for i in range(17):
-            x1 += 1.2 * self.rigid_body_diameter
-
-            x = np.concatenate((x, x1))
-            y = np.concatenate((y, y1))
-
-        # one more layer on top of above created
-        x_bulk = np.copy(x)
-        y_bulk = np.copy(y)
-        x_bulk += 0.5 * self.rigid_body_diameter
-        y_bulk += self.rigid_body_diameter * 1.05
-        x = np.concatenate((x, x_bulk))
-        y = np.concatenate((y, y_bulk))
-
-        # one more layer on top of above created
-        x_bulk = np.copy(x_bulk)
-        y_bulk = np.copy(y_bulk)
-        x_bulk -= 0.5 * self.rigid_body_diameter
-        y_bulk += self.rigid_body_diameter * 1.05
-        x = np.concatenate((x, x_bulk))
-        y = np.concatenate((y, y_bulk))
-
+        x, y = create_circle_1(self.rigid_body_diameter, self.dx)
         return x, y
 
     def create_rb_geometry_particle_array(self):
@@ -470,10 +445,11 @@ class Problem(Application):
         rigid_body_combined = self.create_rb_geometry_particle_array()
         rigid_body_extent = max(rigid_body_combined.x) - min(rigid_body_combined.x)
         rigid_body_combined.x[:] -= min(rigid_body_combined.x) - min(fluid.x)
-        rigid_body_combined.x[:] += self.rigid_body_diameter / 2.
-        rigid_body_combined.x[:] -= 2. * self.dx
+        rigid_body_combined.x[:] += self.fluid_length / 2. - self.rigid_body_diameter * 0.5
+        # rigid_body_combined.x[:] -= 2. * self.dx
         rigid_body_combined.y[:] += min(fluid.y) - min(rigid_body_combined.y)
-        rigid_body_combined.y[:] += self.rigid_body_diameter / 4.
+        rigid_body_combined.y[:] += self.fluid_height / 2.
+        rigid_body_combined.y[:] -= self.dx * 3.
 
         # This is # 2, (Here we create a rigid body which is compatible with
         # combined rigid body solver formulation)
@@ -517,8 +493,8 @@ class Problem(Application):
         add_swelling_properties_to_rigid_body(rigid_body_master)
         add_swelling_properties_to_rigid_body_hu_2d(rigid_body_master)
 
-        rigid_body_master.D_0[:] = 2. * 1e-7
-        rigid_body_master.D_lp[:] = 2. * 1e-7
+        rigid_body_master.D_0[:] = 2. * 1e-6
+        rigid_body_master.D_lp[:] = rigid_body_master.D_0[:]
         rigid_body_master.decay_delta[:] = 1.81
         rigid_body_master.c_wp[:] = 0.
         rigid_body_master.c_wl[:] = self.fluid_rho
@@ -555,7 +531,7 @@ class Problem(Application):
         # x[:] += disp_x
         y = np.array([max(tank.y) / 2.,
                       max(tank.y) / 2.,
-                      min(tank.y) + self.tank_layers * self.dx + self.dx
+                      min(tank.y) + self.tank_layers * self.dx + self.dx * 3
                       ])
         normal_x = np.array([1., -1., 0.])
         normal_y = np.array([0., 0., 1.])
@@ -665,8 +641,6 @@ class Problem(Application):
             AddRadialVelocityToSlaveBody(
                 dest='rigid_body_combined_slave',
                 sources=['rigid_body_combined_master'],
-                # swell_amount=self.dx / 12. * 1 / 200,
-                swell_amount=self.dx / 12.,
                 max_radius=self.max_rigid_body_diameter / 2. - 2. * self.dx))
 
         eqns.groups[0].insert(1, Group(equations=tmp))
@@ -687,73 +661,74 @@ class Problem(Application):
         from pysph_dem.geometry import create_circle_of_three_layers
         t = solver.t
         dt = solver.dt
-        for pa in self.particles:
-            if pa.name == 'rigid_body_combined_master':
-                master = pa
+        if t > self.swelling_start_time:
+            for pa in self.particles:
+                if pa.name == 'rigid_body_combined_master':
+                    master = pa
 
-            if pa.name == 'rigid_body_combined_slave':
-                slave = pa
+                if pa.name == 'rigid_body_combined_slave':
+                    slave = pa
 
-        for i in range(len(master.x)):
-            # Compute the diffusion coefficient
-            master.D_lp[i] = master.D_0[i] * np.exp(
-                -master.decay_delta[i] * master.c_wp[i] / master.c_max[i])
+            for i in range(len(master.x)):
+                # Compute the diffusion coefficient
+                master.D_lp[i] = master.D_0[i] * np.exp(
+                    -master.decay_delta[i] * master.c_wp[i] / master.c_max[i])
 
-            # Compute the surface area
-            master.S_lp[i] = (2. * np.pi * master.rad_s[i]) - master.S_ab[i]
+                # Compute the surface area
+                master.S_lp[i] = (2. * np.pi * master.rad_s[i]) - master.S_ab[i]
 
-            # Compute the rate of mass influx due to surrounding water
-            conc_diff = master.c_wl[i] - master.c_wp[i]
-            master.m_dot_lp[i] = (
-                2. * master.S_lp[i] * master.D_lp[i] * conc_diff) / (
-                    2. * master.rad_s[i])
+                # Compute the rate of mass influx due to surrounding water
+                conc_diff = master.c_wl[i] - master.c_wp[i]
+                master.m_dot_lp[i] = (
+                    2. * master.S_lp[i] * master.D_lp[i] * conc_diff) / (
+                        2. * master.rad_s[i])
 
-            # update the mass of the particle
-            delta_m = (master.m_dot_lp[i] + master.m_dot_pp[i]) * self.dt
-            master.m_w_t[i] += delta_m
-            # TODO choose this carefully
-            master.m_b[i] = master.m_p_0[i] + master.m_w_t[i]
+                # update the mass of the particle
+                delta_m = (master.m_dot_lp[i] + master.m_dot_pp[i]) * self.dt
+                master.m_w_t[i] += delta_m
+                # TODO choose this carefully
+                master.m_b[i] = master.m_p_0[i] + master.m_w_t[i]
 
-            # update the volume of the spherical particle
-            master.v_w_t[i] = master.m_w_t[i] / master.rho_w[i]
-            master.v_s_t[i] = master.v_s_0[i] + master.v_w_t[i]
+                # update the volume of the spherical particle
+                master.v_w_t[i] = master.m_w_t[i] / master.rho_w[i]
+                master.v_s_t[i] = master.v_s_0[i] + master.v_w_t[i]
 
-            # update the diameter
-            master.rad_s[i] = (master.v_s_t[i] / np.pi)**(1/2)
-            master.d_p[i] = 2 * master.rad_s[i]
+                # update the diameter
+                master.rad_s[i] = (master.v_s_t[i] / np.pi)**(1/2)
+                master.d_p[i] = 2 * master.rad_s[i]
 
-            # # update the moment of inertia of the particle
-            # # TODO
-            # master.rad_s[i] = (master.v_s_t[i] / np.pi)**(1/2)
-            # master.d_p[i] = 2 * master.rad_s[i]
+                # # update the moment of inertia of the particle
+                # # TODO
+                # master.rad_s[i] = (master.v_s_t[i] / np.pi)**(1/2)
+                # master.d_p[i] = 2 * master.rad_s[i]
 
-            # update the h value to reflect the nnps
-            master.h[i] = master.rad_s[i] / 1.25
-            master.d_p[i] = 2 * master.rad_s[i]
+                # update the h value to reflect the nnps
+                master.h[i] = master.rad_s[i] / 1.25
+                master.d_p[i] = 2 * master.rad_s[i]
 
-            # update the concentration
-            master.c_wp[i] = (master.m_b[i] - master.m_p_0[i]) / master.v_s_t[i]
+                # update the concentration
+                master.c_wp[i] = (master.m_b[i] - master.m_p_0[i]) / master.v_s_t[i]
 
-            master.radial_vel_count[i] += 1
+                master.radial_vel_count[i] += 1
 
-            if master.rad_s[i] - master.rad_s_prev[i] >= self.dx / 12:
-                # master.rad_s[i] += self.dx / 8.
-                # master.m_b[i] = np.pi * master.rad_s[i]**2. * self.rigid_body_rho
-                # re-adjust the SPH particles
-                x_new, y_new = create_circle_of_three_layers(
-                    master.rad_s[i] * 2., self.dx)
-                left_limit = master.body_limits[2 * i]
-                slave.dx0[left_limit:left_limit+len(x_new)] = x_new[:]
-                slave.dy0[left_limit:left_limit+len(x_new)] = y_new[:]
+                if master.rad_s[i] - master.rad_s_prev[i] >= self.swell_amount:
+                    # master.rad_s[i] += self.dx / 8.
+                    # master.m_b[i] = np.pi * master.rad_s[i]**2. * self.rigid_body_rho
+                    # re-adjust the SPH particles
+                    x_new, y_new = create_circle_of_three_layers(
+                        master.rad_s[i] * 2., self.dx)
+                    left_limit = master.body_limits[2 * i]
+                    slave.dx0[left_limit:left_limit+len(x_new)] = x_new[:]
+                    slave.dy0[left_limit:left_limit+len(x_new)] = y_new[:]
 
-                slave.u[left_limit:left_limit+len(x_new)] = x_new[:]
-                slave.v[left_limit:left_limit+len(x_new)] = y_new[:]
+                    slave.u[left_limit:left_limit+len(x_new)] = x_new[:]
+                    slave.v[left_limit:left_limit+len(x_new)] = y_new[:]
 
-                # reset the previous radius
-                master.rad_s_prev[i] = master.rad_s[i]
+                    # reset the previous radius
+                    master.rad_s_prev[i] = master.rad_s[i]
 
-                # reset the radial velocity count
-                master.radial_vel_count[i] = 0
+                    # reset the radial velocity count
+                    master.radial_vel_count[i] = 0
 
     def customize_output(self):
         self._mayavi_config('''
@@ -766,6 +741,93 @@ class Problem(Application):
         b.scalar = 'm'
         b.plot.module_manager.scalar_lut_manager.lut_mode = 'jet'
         ''')
+
+    def post_process(self, fname):
+        if len(self.output_files) == 0:
+            return
+
+        from pysph.solver.utils import iter_output
+        from pysph.solver.utils import load, get_files
+
+        files = self.output_files
+        files = files[0::10]
+        t, total_energy = [], []
+        x, y = [], []
+        R = []
+        ang_mom = []
+
+        fluid_volume_increase = []
+        solid_volume_increase = []
+
+        self.rigid_body_diameter = 1.9 * 1e-3
+        # fluid_length = 3 * 1.5 * self.rigid_body_diameter
+        # fluid_height = 3 * self.rigid_body_diameter
+
+        fname = files[0]
+        data = load(fname)
+        fluid = data['arrays']['fluid']
+        fluid_length = max(fluid.x) - min(fluid.x)
+        fluid_height = max(fluid.y) - min(fluid.y)
+        fluid_volume_0 = fluid_height * fluid_length
+
+        fname = files[0]
+        data = load(fname)
+        body = data['arrays']['rigid_body_combined_master']
+        solid_volume_t_0 = np.pi * (body.rad_s[0])**2.
+        print("solid volume is", solid_volume_t_0)
+
+        for sd, body, fluid in iter_output(files, 'rigid_body_combined_master', 'fluid'):
+            _t = sd['t']
+            # print(_t)
+            t.append(_t)
+            rad_s_t_later = body.rad_s[0]
+            solid_volume_t_later = np.pi * rad_s_t_later**2.
+            fluid_y_later = np.max(fluid.y)
+            fluid_volume_later = fluid_y_later * fluid_length
+
+            solid_volume_increase_ = solid_volume_t_later - solid_volume_t_0
+            # print(solid_volume_t_later)
+            # print("solids volume increase", solid_volume_increase)
+
+            fluid_volume_increase_ = fluid_volume_later - fluid_volume_0
+
+            fluid_volume_increase.append(fluid_volume_increase_)
+            solid_volume_increase.append(solid_volume_increase_)
+
+        # print(ang_mom)
+
+        import matplotlib
+        import os
+        # matplotlib.use('Agg')
+
+        from matplotlib import pyplot as plt
+
+        # res = os.path.join(self.output_dir, "results.npz")
+        # np.savez(res, t=t, amplitude=amplitude)
+
+        # gtvf data
+        # data = np.loadtxt('./oscillating_plate.csv', delimiter=',')
+        # t_gtvf, amplitude_gtvf = data[:, 0], data[:, 1]
+
+        plt.clf()
+
+        # plt.plot(t_gtvf, amplitude_gtvf, "s-", label='GTVF Paper')
+        # plt.plot(t, total_energy, "-", label='Simulated')
+        # plt.plot(t, ang_mom, "-", label='Angular momentum')
+        plt.plot(t, fluid_volume_increase, "-", label='Fluid volume increase')
+        plt.plot(t, solid_volume_increase, "*", label='Solid volume increase')
+
+        plt.xlabel('t')
+        plt.ylabel('Volume increase (m^3)')
+        plt.legend()
+        fig = os.path.join(self.output_dir, "t_vs_volume.pdf")
+        plt.savefig(fig, dpi=300)
+        # plt.show()
+
+        # plt.plot(x, y, label='Simulated')
+        # plt.show()
+
+
 
 
 if __name__ == '__main__':
